@@ -23,9 +23,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     supportsTablet: true,
     bundleIdentifier: 'com.inukshuk.app',
     infoPlist: {
-      // Background location is required to keep recording a track while the
-      // screen is locked during a hike.
-      UIBackgroundModes: ['location'],
+      // v1 records in the foreground only (screen kept awake), so no background
+      // location mode is declared — keeps store review simple.
       ITSAppUsesNonExemptEncryption: false,
     },
   },
@@ -35,13 +34,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/android-icon-foreground.png',
       backgroundColor: '#0B3D2E',
     },
-    permissions: [
-      'ACCESS_COARSE_LOCATION',
-      'ACCESS_FINE_LOCATION',
-      'ACCESS_BACKGROUND_LOCATION',
-      'FOREGROUND_SERVICE',
-      'FOREGROUND_SERVICE_LOCATION',
-    ],
+    // Foreground-only location in v1 — no background or foreground-service
+    // location permissions, which avoids Play's stricter background-location
+    // review.
+    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
   },
   web: {
     favicon: './assets/favicon.png',
@@ -63,12 +59,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-location',
       {
-        locationAlwaysAndWhenInUsePermission:
-          'Inukshuk uses your location to show where you are on the map and to record your trail.',
         locationWhenInUsePermission:
           'Inukshuk uses your location to show where you are on the map and to record your trail.',
-        isAndroidBackgroundLocationEnabled: true,
-        isAndroidForegroundServiceEnabled: true,
+        isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: false,
       },
     ],
     [

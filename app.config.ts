@@ -10,6 +10,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Inukshuk',
   slug: 'inukshuk',
+  owner: 'pythagorasv02',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -82,7 +83,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     eas: {
-      projectId: process.env.EAS_PROJECT_ID ?? '00000000-0000-0000-0000-000000000000',
+      projectId: process.env.EAS_PROJECT_ID ?? 'ba200eac-11b2-4c40-bd17-c0c66351ea54',
     },
   },
   updates: {

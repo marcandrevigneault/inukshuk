@@ -1,0 +1,15 @@
+# Maestro smoke flow: launches the app and walks the three tabs, asserting the
+# key UI of each is present. Fast end-to-end confidence that navigation, the map
+# screen, and the providers all mount without crashing.
+appId: com.inukshuk.app
+---
+- launchApp:
+    permissions:
+      location: allow
+- assertVisible: 'Record'
+- tapOn: 'Library'
+- assertVisible: 'Import map'
+- tapOn: 'Settings'
+- assertVisible: 'Keep screen awake'
+- tapOn: 'Map'
+- assertVisible: 'Record'

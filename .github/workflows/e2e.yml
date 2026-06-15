@@ -1,0 +1,55 @@
+name: E2E (Maestro · Android)
+
+# End-to-end smoke test on a real Android emulator. Builds a debug APK, boots an
+# emulator with hardware acceleration, installs the app, and runs the Maestro
+# flow in .maestro/. Nightly + on demand to conserve CI minutes.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 5 * * *'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - run: npm ci
+
+      - name: Prebuild + assemble debug APK
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android && ./gradlew assembleDebug --no-daemon
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+
+      - name: Install Maestro
+        run: |
+          curl -Ls https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Run Maestro flow on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            maestro test .maestro/smoke.yaml

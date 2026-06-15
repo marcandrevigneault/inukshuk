@@ -1,0 +1,245 @@
+import { mapColors } from '@ui/theme';
+import {
+  Camera,
+  type CameraRef,
+  GeoJSONSource,
+  ImageSource,
+  Layer,
+  Map,
+  UserLocation,
+} from '@maplibre/maplibre-react-native';
+import { useLibraryStore } from '@state/libraryStore';
+import { useMapStore } from '@state/mapStore';
+import { useRecorderStore } from '@state/recorderStore';
+import { useSettingsStore } from '@state/settingsStore';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { Banner, FAB, Snackbar } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CompassBadge } from './components/CompassBadge';
+import { RecordControls } from './components/RecordControls';
+import { StatsHud } from './components/StatsHud';
+import { toLineFeature, toLngLatBounds } from './geojson';
+import { buildOsmStyle } from './mapStyle';
+import { useCompass } from './useCompass';
+import { useLocationTracking } from './useLocation';
+import { usePdfOverlay } from './usePdfOverlay';
+
+export function MapScreen() {
+  const insets = useSafeAreaInsets();
+  const cameraRef = useRef<CameraRef>(null);
+
+  const tileUrl = useSettingsStore((s) => s.tileUrl);
+  const keepAwake = useSettingsStore((s) => s.keepAwakeWhileRecording);
+  const style = useMemo(() => buildOsmStyle(tileUrl), [tileUrl]);
+
+  const { permission } = useLocationTracking();
+  const heading = useCompass();
+
+  const activeMap = useLibraryStore((s) => (s.activeMapId ? s.activeMap() : null));
+  const { overlay, error: overlayError } = usePdfOverlay(activeMap);
+
+  const followUser = useMapStore((s) => s.followUser);
+  const setFollowUser = useMapStore((s) => s.setFollowUser);
+  const showPdfOverlay = useMapStore((s) => s.showPdfOverlay);
+  const togglePdfOverlay = useMapStore((s) => s.togglePdfOverlay);
+  const focusedTrack = useMapStore((s) => s.focusedTrack);
+
+  const status = useRecorderStore((s) => s.status);
+  const name = useRecorderStore((s) => s.name);
+  const stats = useRecorderStore((s) => s.stats);
+  const points = useRecorderStore((s) => s.points);
+  const startedAt = useRecorderStore((s) => s.startedAt);
+  const start = useRecorderStore((s) => s.start);
+  const pause = useRecorderStore((s) => s.pause);
+  const resume = useRecorderStore((s) => s.resume);
+  const stop = useRecorderStore((s) => s.stop);
+
+  const [elapsedS, setElapsedS] = useState(0);
+  const [snack, setSnack] = useState<string | null>(null);
+
+  // Live wall-clock timer, independent of GPS fix cadence.
+  useEffect(() => {
+    if (status !== 'recording' || startedAt === null) return;
+    const tick = () => setElapsedS(Math.floor((Date.now() - startedAt) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [status, startedAt]);
+
+  // Keep the screen on while actively recording (if enabled).
+  useEffect(() => {
+    if (status === 'recording' && keepAwake) {
+      void activateKeepAwakeAsync('inukshuk-recording');
+      return () => {
+        void deactivateKeepAwake('inukshuk-recording');
+      };
+    }
+    return undefined;
+  }, [status, keepAwake]);
+
+  const trailFeature = useMemo(() => toLineFeature(points), [points]);
+  const focusedFeature = useMemo(
+    () => (focusedTrack ? toLineFeature(focusedTrack.points) : null),
+    [focusedTrack],
+  );
+
+  const fitActiveMap = () => {
+    if (overlay) {
+      setFollowUser(false);
+      cameraRef.current?.fitBounds(toLngLatBounds(overlay.bbox), {
+        duration: 600,
+        padding: { top: 48, right: 48, bottom: 48, left: 48 },
+      });
+    }
+  };
+
+  const handleStop = async () => {
+    const track = await stop();
+    setElapsedS(0);
+    setSnack(
+      track && track.points.length > 0
+        ? `Saved "${track.name}"`
+        : 'Recording discarded (no points)',
+    );
+  };
+
+  return (
+    <View style={styles.fill}>
+      <Map
+        style={styles.fill}
+        mapStyle={style}
+        attribution
+        attributionPosition={{ bottom: 8, left: 8 }}
+      >
+        <Camera
+          ref={cameraRef}
+          initialViewState={{ zoom: 14 }}
+          trackUserLocation={followUser ? 'default' : undefined}
+          onTrackUserLocationChange={(e) => {
+            if (e.nativeEvent.trackUserLocation === null) setFollowUser(false);
+          }}
+          minZoom={1}
+          maxZoom={20}
+        />
+
+        {overlay && showPdfOverlay && (
+          <ImageSource id="pdf-overlay" url={overlay.pngDataUri} coordinates={overlay.coordinates}>
+            <Layer id="pdf-overlay-layer" type="raster" paint={{ 'raster-opacity': 0.92 }} />
+          </ImageSource>
+        )}
+
+        {focusedFeature && (
+          <GeoJSONSource id="focused-track" data={focusedFeature}>
+            <Layer
+              id="focused-track-line"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': '#3B6FB0', 'line-width': 4, 'line-opacity': 0.85 }}
+            />
+          </GeoJSONSource>
+        )}
+
+        {trailFeature && (
+          <GeoJSONSource id="trail" data={trailFeature}>
+            <Layer
+              id="trail-glow"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': mapColors.trailGlow, 'line-width': 11 }}
+            />
+            <Layer
+              id="trail-line"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': mapColors.trail, 'line-width': 5 }}
+            />
+          </GeoJSONSource>
+        )}
+
+        <UserLocation animated accuracy heading />
+      </Map>
+
+      {/* Top-left compass */}
+      <View style={[styles.topLeft, { top: insets.top + 8 }]} pointerEvents="box-none">
+        <CompassBadge heading={heading} />
+      </View>
+
+      {/* Right-side map controls */}
+      <View style={[styles.rightControls, { top: insets.top + 8 }]} pointerEvents="box-none">
+        <FAB
+          icon="crosshairs-gps"
+          size="small"
+          variant="surface"
+          onPress={() => setFollowUser(true)}
+          style={styles.controlFab}
+        />
+        {activeMap?.georeference && (
+          <>
+            <FAB
+              icon="fit-to-page-outline"
+              size="small"
+              variant="surface"
+              onPress={fitActiveMap}
+              style={styles.controlFab}
+            />
+            <FAB
+              icon={showPdfOverlay ? 'layers' : 'layers-off'}
+              size="small"
+              variant="surface"
+              onPress={togglePdfOverlay}
+              style={styles.controlFab}
+            />
+          </>
+        )}
+      </View>
+
+      {permission === 'denied' && (
+        <Banner
+          visible
+          style={[styles.banner, { top: insets.top + 8 }]}
+          icon="map-marker-off"
+          actions={[]}
+        >
+          Location permission denied. Enable it in Settings to see your position and record trails.
+        </Banner>
+      )}
+
+      {/* Bottom HUD + controls */}
+      <View style={[styles.bottom, { paddingBottom: insets.bottom + 16 }]} pointerEvents="box-none">
+        {status !== 'idle' && (
+          <StatsHud name={name} stats={stats} elapsedS={elapsedS} paused={status === 'paused'} />
+        )}
+        <View style={styles.controlsRow} pointerEvents="box-none">
+          <RecordControls
+            status={status}
+            onStart={() => start()}
+            onPause={pause}
+            onResume={resume}
+            onStop={handleStop}
+          />
+        </View>
+      </View>
+
+      <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3000}>
+        {snack ?? ''}
+      </Snackbar>
+      {overlayError && (
+        <Snackbar visible onDismiss={() => undefined} duration={4000}>
+          {`Map overlay: ${overlayError}`}
+        </Snackbar>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  topLeft: { position: 'absolute', left: 12 },
+  rightControls: { position: 'absolute', right: 12, gap: 10, alignItems: 'flex-end' },
+  controlFab: { borderRadius: 24 },
+  banner: { position: 'absolute', left: 8, right: 8, borderRadius: 12 },
+  bottom: { position: 'absolute', left: 12, right: 12, bottom: 0, gap: 14 },
+  controlsRow: { alignItems: 'center' },
+});

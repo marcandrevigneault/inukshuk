@@ -1,0 +1,65 @@
+name: Release (Build & Submit to Stores)
+
+# Builds production binaries on EAS and submits them to the App Store
+# (TestFlight) and Google Play (internal track). Triggered by pushing a version
+# tag like `v1.0.0`, or manually. No-ops until the required secrets are set —
+# see docs/DEPLOYMENT.md for the full account/secret checklist.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build & submit
+        type: choice
+        default: all
+        options: [all, ios, android]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.c.outputs.enabled }}
+    steps:
+      - id: c
+        run: echo "enabled=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+  build-submit:
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - run: npm ci
+
+      # Materialize store credentials from secrets into the files referenced by
+      # eas.json's submit profile. Missing secrets simply produce empty files;
+      # eas submit will then report the specific missing credential.
+      - name: Write Google Play service account key
+        if: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON != '' }}
+        run: printf '%s' '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
+
+      - name: Write App Store Connect API key
+        if: ${{ secrets.ASC_API_KEY_P8 != '' }}
+        run: printf '%s' '${{ secrets.ASC_API_KEY_P8 }}' > asc-api-key.p8
+
+      - name: Build and submit
+        run: |
+          eas build \
+            --platform "${{ github.event.inputs.platform || 'all' }}" \
+            --profile production \
+            --auto-submit \
+            --non-interactive \
+            --no-wait

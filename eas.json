@@ -1,0 +1,41 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": true }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "channel": "production",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "//": "Non-secret IDs go here; the .p8 key file is written from a secret in CI.",
+        "ascApiKeyPath": "./asc-api-key.p8",
+        "ascApiKeyId": "REPLACE_WITH_ASC_KEY_ID",
+        "ascApiKeyIssuerId": "REPLACE_WITH_ASC_ISSUER_ID",
+        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID"
+      },
+      "android": {
+        "//": "Service account JSON is written from a secret in CI.",
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
+  }
+}

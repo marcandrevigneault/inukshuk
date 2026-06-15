@@ -1,0 +1,150 @@
+import type { CornerCoordinates, PointRect } from '@core/models';
+import {
+  applyAffine,
+  bboxFromCorners,
+  bboxFromLngLats,
+  extrapolatePageCorners,
+  fitAffine,
+  isInsideBBox,
+  padBBox,
+} from './geomath';
+
+describe('fitAffine / applyAffine', () => {
+  it('recovers a pure translation + scale exactly', () => {
+    // dst = (2x + 10, 3y - 5)
+    const src = [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const;
+    const dst = src.map(([x, y]) => [2 * x + 10, 3 * y - 5] as const);
+    const t = fitAffine(src, dst);
+    expect(applyAffine(t, 5, 7)[0]).toBeCloseTo(20, 6);
+    expect(applyAffine(t, 5, 7)[1]).toBeCloseTo(16, 6);
+  });
+
+  it('recovers a rotation/skew transform', () => {
+    // dst = (x - y, x + y)
+    const src = [
+      [0, 0],
+      [2, 0],
+      [0, 2],
+      [3, 5],
+    ] as const;
+    const dst = src.map(([x, y]) => [x - y, x + y] as const);
+    const t = fitAffine(src, dst);
+    const [u, v] = applyAffine(t, 4, 1);
+    expect(u).toBeCloseTo(3, 6);
+    expect(v).toBeCloseTo(5, 6);
+  });
+
+  it('throws on too few points', () => {
+    expect(() =>
+      fitAffine(
+        [
+          [0, 0],
+          [1, 1],
+        ],
+        [
+          [0, 0],
+          [1, 1],
+        ],
+      ),
+    ).toThrow(/at least 3/);
+  });
+
+  it('throws on collinear (degenerate) source points', () => {
+    const src = [
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ] as const;
+    const dst = [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+    ] as const;
+    expect(() => fitAffine(src, dst)).toThrow(/Degenerate/);
+  });
+});
+
+describe('extrapolatePageCorners', () => {
+  it('returns the viewport corners unchanged when target === viewport', () => {
+    const rect: PointRect = { x0: 0, y0: 0, x1: 100, y1: 200 };
+    const corners: CornerCoordinates = {
+      topLeft: [-71.1, 42.4],
+      topRight: [-71.0, 42.4],
+      bottomRight: [-71.0, 42.3],
+      bottomLeft: [-71.1, 42.3],
+    };
+    const out = extrapolatePageCorners(rect, corners, rect);
+    expect(out.topLeft[0]).toBeCloseTo(-71.1, 6);
+    expect(out.topLeft[1]).toBeCloseTo(42.4, 6);
+    expect(out.bottomRight[0]).toBeCloseTo(-71.0, 6);
+    expect(out.bottomRight[1]).toBeCloseTo(42.3, 6);
+  });
+
+  it('extrapolates a full page from a centered viewport linearly', () => {
+    // Viewport is the inner half of the page; geo spans 1 degree across it.
+    const viewportRect: PointRect = { x0: 100, y0: 100, x1: 200, y1: 200 };
+    const viewportCorners: CornerCoordinates = {
+      topLeft: [0, 1],
+      topRight: [1, 1],
+      bottomRight: [1, 0],
+      bottomLeft: [0, 0],
+    };
+    const pageRect: PointRect = { x0: 0, y0: 0, x1: 300, y1: 300 };
+    const out = extrapolatePageCorners(viewportRect, viewportCorners, pageRect);
+    // Page extends one extra viewport-width beyond each side -> -1..2 degrees.
+    expect(out.bottomLeft[0]).toBeCloseTo(-1, 6);
+    expect(out.bottomLeft[1]).toBeCloseTo(-1, 6);
+    expect(out.topRight[0]).toBeCloseTo(2, 6);
+    expect(out.topRight[1]).toBeCloseTo(2, 6);
+  });
+});
+
+describe('bbox helpers', () => {
+  it('bboxFromLngLats computes the extent', () => {
+    const bbox = bboxFromLngLats([
+      [-71.1, 42.3],
+      [-70.9, 42.5],
+      [-71.0, 42.4],
+    ]);
+    expect(bbox).toEqual({ minLat: 42.3, minLng: -71.1, maxLat: 42.5, maxLng: -70.9 });
+  });
+
+  it('bboxFromLngLats throws on empty input', () => {
+    expect(() => bboxFromLngLats([])).toThrow();
+  });
+
+  it('bboxFromCorners wraps bboxFromLngLats', () => {
+    const corners: CornerCoordinates = {
+      topLeft: [-71.1, 42.5],
+      topRight: [-70.9, 42.5],
+      bottomRight: [-70.9, 42.3],
+      bottomLeft: [-71.1, 42.3],
+    };
+    expect(bboxFromCorners(corners)).toEqual({
+      minLat: 42.3,
+      minLng: -71.1,
+      maxLat: 42.5,
+      maxLng: -70.9,
+    });
+  });
+
+  it('isInsideBBox is inclusive of edges', () => {
+    const bbox = { minLat: 42.3, minLng: -71.1, maxLat: 42.5, maxLng: -70.9 };
+    expect(isInsideBBox({ latitude: 42.4, longitude: -71.0 }, bbox)).toBe(true);
+    expect(isInsideBBox({ latitude: 42.3, longitude: -71.1 }, bbox)).toBe(true);
+    expect(isInsideBBox({ latitude: 42.6, longitude: -71.0 }, bbox)).toBe(false);
+    expect(isInsideBBox({ latitude: 42.4, longitude: -72.0 }, bbox)).toBe(false);
+  });
+
+  it('padBBox expands symmetrically by a fraction', () => {
+    const padded = padBBox({ minLat: 0, minLng: 0, maxLat: 10, maxLng: 20 }, 0.1);
+    expect(padded).toEqual({ minLat: -1, minLng: -2, maxLat: 11, maxLng: 22 });
+  });
+});

@@ -1,0 +1,69 @@
+name: Nightly Health Check
+
+# Autonomous self-checkup. Runs the full gate plus a blocking expo-doctor and a
+# security audit every night. If anything regresses (e.g. a transitive dep
+# breaks, or a new SDK surfaces a config warning), it opens/updates a tracking
+# issue so problems surface without anyone watching.
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        run: npm run test:ci
+      - name: Expo Doctor (blocking)
+        run: npx expo-doctor
+      - name: Security audit (high+)
+        run: npm audit --audit-level=high
+
+  report-failure:
+    needs: health
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🩺 Nightly health check failed';
+            const body = `The nightly health check failed on ${new Date().toISOString().slice(0, 10)}.\n\n` +
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
+              `One of: typecheck, lint, tests, expo-doctor, or npm audit regressed. ` +
+              `Check the logs and open a fix.`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'health-check',
+            });
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['health-check'],
+              });
+            }

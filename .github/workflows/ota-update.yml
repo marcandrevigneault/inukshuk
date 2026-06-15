@@ -1,0 +1,42 @@
+name: OTA Update
+
+# Self-correction in the field: every merge to main that changes JS/assets is
+# published as an over-the-air EAS Update, so shipped apps pick up fixes without
+# a new store submission. No-ops until EXPO_TOKEN is configured.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - 'assets/**'
+      - 'package.json'
+      - 'app.config.ts'
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.c.outputs.enabled }}
+    steps:
+      - id: c
+        run: echo "enabled=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Publish OTA update to the production channel
+        run: eas update --auto --branch production --non-interactive

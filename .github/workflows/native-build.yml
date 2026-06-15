@@ -1,0 +1,88 @@
+name: Native Build Test
+
+# Proves the app actually compiles into real iOS and Android binaries on the
+# latest toolchains. No code signing, no store accounts needed — pure compile
+# verification. Runs on PRs that touch native-affecting files, and nightly.
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.config.ts'
+      - 'app.json'
+      - 'src/**'
+      - 'app/**'
+      - 'assets/**'
+      - '.github/workflows/native-build.yml'
+  workflow_dispatch:
+  schedule:
+    # 04:30 UTC daily — catches breakage from new Xcode / Android SDK images.
+    - cron: '30 4 * * *'
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android (Gradle assembleDebug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - run: npm ci
+
+      - name: Prebuild native Android project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compile debug APK
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  ios:
+    name: iOS (xcodebuild simulator)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prebuild native iOS project
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Install CocoaPods
+        run: npx pod-install
+
+      - name: Compile for simulator (no signing)
+        run: |
+          xcodebuild \
+            -workspace ios/Inukshuk.xcworkspace \
+            -scheme Inukshuk \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

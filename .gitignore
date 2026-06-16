@@ -20,6 +20,12 @@ coverage/
 *.key
 *.mobileprovision
 
+# Store credentials & signed artifacts — never commit
+google-service-account.json
+asc-api-key.p8
+*.aab
+*.apk
+
 # Metro
 .metro-health-check*
 

@@ -32,7 +32,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: 'com.inukshuk.app',
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
-      backgroundColor: '#0B3D2E',
+      // Cream paper from the logo; the full-bleed foreground covers it, this only
+      // shows at the mask edges during launcher parallax.
+      backgroundColor: '#E0D8CC',
     },
     // Foreground-only location in v1 — no background or foreground-service
     // location permissions, which avoids Play's stricter background-location
@@ -52,8 +54,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-splash-screen',
       {
         image: './assets/splash-icon.png',
-        backgroundColor: '#0B3D2E',
-        imageWidth: 180,
+        // Warm paper cream from the logo, matching the in-app background for a
+        // seamless hand-off from splash to first screen.
+        backgroundColor: '#F2ECE0',
+        imageWidth: 200,
       },
     ],
     [

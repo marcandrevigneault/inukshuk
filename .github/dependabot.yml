@@ -7,6 +7,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # React's version is dictated by the installed Expo SDK / React Native
+      # renderer. Bumping it independently crashes the app at launch with an
+      # "Incompatible React versions" error (see #8). These move only via
+      # `expo install` during an SDK upgrade, never on their own.
+      - dependency-name: 'react'
+      - dependency-name: 'react-dom'
+      - dependency-name: 'react-test-renderer'
     groups:
       expo:
         patterns:

@@ -28,7 +28,7 @@
     "nanoid": "^5.1.11",
     "pdfjs-dist": "^3.11.174",
     "proj4": "^2.20.9",
-    "react": "19.2.7",
+    "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-gesture-handler": "~2.31.1",
     "react-native-paper": "^5.15.3",

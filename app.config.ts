@@ -85,8 +85,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   updates: {
-    // OTA self-correction channel; CI publishes JS-only fixes here.
-    url: process.env.EAS_UPDATE_URL,
+    // OTA self-correction channel; CI (ota-update.yml) publishes JS-only fixes
+    // to the `production` branch. URL is the EAS Update endpoint for this project
+    // (https://u.expo.dev/<projectId>); env override allows pointing elsewhere.
+    url: process.env.EAS_UPDATE_URL ?? 'https://u.expo.dev/ba200eac-11b2-4c40-bd17-c0c66351ea54',
     fallbackToCacheTimeout: 0,
   },
   runtimeVersion: {

@@ -48,3 +48,6 @@ yarn-error.*
 /ios
 /android
 builds/
+
+# local secret material — never commit
+.expo-token.local

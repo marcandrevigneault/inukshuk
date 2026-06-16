@@ -1,4 +1,5 @@
 import { parseGpx } from '@core/geo/gpx';
+import type { TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
 import { formatDistance, formatElevation, formatTimestamp } from '@lib/format';
 import { useLibraryStore } from '@state/libraryStore';
@@ -8,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {
+  ActivityIndicator,
   Appbar,
   Banner,
   Card,
@@ -20,6 +22,7 @@ import {
   Text,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ElevationProfile } from './components/ElevationProfile';
 import { pickAndImportMap } from './importMap';
 
 export function LibraryScreen() {
@@ -37,6 +40,8 @@ export function LibraryScreen() {
 
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
+  const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  const [trackPoints, setTrackPoints] = useState<Record<string, TrackPoint[]>>({});
 
   const onImport = async () => {
     setBusy(true);
@@ -67,6 +72,24 @@ export function LibraryScreen() {
       router.navigate('/');
     } catch {
       setSnack('Could not open track');
+    }
+  };
+
+  const toggleElevation = async (id: string, fileUri: string) => {
+    if (expandedTrack === id) {
+      setExpandedTrack(null);
+      return;
+    }
+    setExpandedTrack(id);
+    if (!trackPoints[id]) {
+      try {
+        const gpx = await storage.readFileText(fileUri);
+        const { points } = parseGpx(gpx);
+        setTrackPoints((cache) => ({ ...cache, [id]: points }));
+      } catch {
+        setSnack('Could not load elevation');
+        setExpandedTrack(null);
+      }
     }
   };
 
@@ -142,10 +165,24 @@ export function LibraryScreen() {
                   <Text variant="bodyMedium">↓ {formatElevation(t.stats.descentM)}</Text>
                 </Card.Content>
                 <Card.Actions>
+                  <IconButton
+                    icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
+                    onPress={() => toggleElevation(t.id, t.fileUri)}
+                  />
                   <IconButton icon="map-outline" onPress={() => viewTrack(t.fileUri, t.id)} />
                   <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
                   <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
                 </Card.Actions>
+                {expandedTrack === t.id &&
+                  (trackPoints[t.id] ? (
+                    <ElevationProfile
+                      points={trackPoints[t.id]!}
+                      ascentM={t.stats.ascentM}
+                      descentM={t.stats.descentM}
+                    />
+                  ) : (
+                    <ActivityIndicator style={styles.loader} />
+                  ))}
               </Card>
             ))
           )}
@@ -173,6 +210,7 @@ const styles = StyleSheet.create({
   rowEnd: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   activeChip: { alignSelf: 'center' },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
+  loader: { paddingVertical: 24 },
   trackStats: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 24 },
   fab: { position: 'absolute', right: 16, borderRadius: 28 },
 });

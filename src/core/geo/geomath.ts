@@ -5,6 +5,22 @@ import type { BoundingBox, CornerCoordinates, LatLng, LngLat, PointRect } from '
  * No React-Native or platform dependencies — fully unit-testable.
  */
 
+/** Mean earth radius in metres (IUGG), the value GPX/GIS tooling expects. */
+const EARTH_RADIUS_M = 6371008.8;
+const DEG2RAD = Math.PI / 180;
+
+/** Great-circle distance between two coordinates, in metres. */
+export function haversineMeters(a: LatLng, b: LatLng): number {
+  const lat1 = a.latitude * DEG2RAD;
+  const lat2 = b.latitude * DEG2RAD;
+  const dLat = (b.latitude - a.latitude) * DEG2RAD;
+  const dLng = (b.longitude - a.longitude) * DEG2RAD;
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** A 2D affine transform mapping (x, y) -> (a*x + b*y + c, d*x + e*y + f). */
 export interface Affine2D {
   a: number;

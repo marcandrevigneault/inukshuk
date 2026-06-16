@@ -1,4 +1,5 @@
-import type { BoundingBox, LatLng, TrackPoint, TrackStats } from '@core/models';
+import type { BoundingBox, TrackPoint, TrackStats } from '@core/models';
+import { haversineMeters } from '@core/geo/geomath';
 
 /**
  * Pure track-statistics math: distance, elevation gain/loss with GPS-noise
@@ -6,25 +7,14 @@ import type { BoundingBox, LatLng, TrackPoint, TrackStats } from '@core/models';
  * in Node (Jest) and the RN JS runtime.
  */
 
-/** Mean earth radius in metres (IUGG), the value GPX/GIS tooling expects. */
-const EARTH_RADIUS_M = 6371008.8;
-
-const DEG2RAD = Math.PI / 180;
+// Re-exported here so existing `@core/geo/track` consumers keep working after
+// haversineMeters moved to the shared geomath module.
+export { haversineMeters };
+export { buildElevationProfile } from './elevationProfile';
+export type { ElevationProfile, ElevationSample } from './elevationProfile';
 
 const DEFAULT_ELEVATION_THRESHOLD_M = 3;
 const DEFAULT_MOVING_SPEED_THRESHOLD_MPS = 0.5;
-
-/** Great-circle distance between two coordinates, in metres. */
-export function haversineMeters(a: LatLng, b: LatLng): number {
-  const lat1 = a.latitude * DEG2RAD;
-  const lat2 = b.latitude * DEG2RAD;
-  const dLat = (b.latitude - a.latitude) * DEG2RAD;
-  const dLng = (b.longitude - a.longitude) * DEG2RAD;
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLng = Math.sin(dLng / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
-}
 
 /**
  * Cumulative ascent (D+) and descent (D-) from an elevation series.

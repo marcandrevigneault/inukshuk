@@ -1,6 +1,32 @@
-import type { MapDocument, Track, TrackSummary } from '@core/models';
+import type { GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
 import * as storage from '@data/storage';
 import { create } from 'zustand';
+
+/**
+ * Normalize a persisted map document to the current shape. Older builds stored a
+ * single `georeference` (or none); the current model stores `georeferences[]` +
+ * `activePages[]`. This keeps existing libraries working after an update.
+ */
+function migrateDoc(raw: MapDocument & { georeference?: GeoReference | null }): MapDocument {
+  const georeferences = Array.isArray(raw.georeferences)
+    ? raw.georeferences
+    : raw.georeference
+      ? [raw.georeference]
+      : [];
+  const activePages = Array.isArray(raw.activePages)
+    ? raw.activePages
+    : georeferences.map((g) => g.pageIndex);
+  return {
+    id: raw.id,
+    name: raw.name,
+    fileUri: raw.fileUri,
+    importedAt: raw.importedAt,
+    pageCount: raw.pageCount,
+    georeferences,
+    activePages,
+    georeferenceWarning: raw.georeferenceWarning,
+  };
+}
 
 interface LibraryIndex {
   maps: MapDocument[];
@@ -15,6 +41,8 @@ interface LibraryState extends LibraryIndex {
   updateMap: (id: string, patch: Partial<MapDocument>) => void;
   removeMap: (id: string) => void;
   setActiveMap: (id: string | null) => void;
+  /** Toggle whether a georeferenced page of a map is shown as an overlay. */
+  toggleMapPage: (id: string, pageIndex: number) => void;
   addTrack: (track: Track, fileUri: string) => void;
   removeTrack: (id: string) => void;
   activeMap: () => MapDocument | null;
@@ -39,7 +67,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const index = await storage.readIndex<LibraryIndex>();
     if (index) {
       set({
-        maps: index.maps ?? [],
+        maps: (index.maps ?? []).map(migrateDoc),
         tracks: index.tracks ?? [],
         activeMapId: index.activeMapId ?? null,
         hydrated: true,
@@ -79,6 +107,25 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   setActiveMap: (id) =>
     set((s) => {
       const next = { ...s, activeMapId: id };
+      persist(next);
+      return next;
+    }),
+
+  toggleMapPage: (id, pageIndex) =>
+    set((s) => {
+      const next = {
+        ...s,
+        maps: s.maps.map((m) => {
+          if (m.id !== id) return m;
+          const on = m.activePages.includes(pageIndex);
+          return {
+            ...m,
+            activePages: on
+              ? m.activePages.filter((p) => p !== pageIndex)
+              : [...m.activePages, pageIndex].sort((a, b) => a - b),
+          };
+        }),
+      };
       persist(next);
       return next;
     }),

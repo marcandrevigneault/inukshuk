@@ -8,8 +8,10 @@ export interface MapDocument {
   fileUri: string;
   importedAt: number;
   pageCount: number;
-  /** Georeference for the active page, or null if it could not be resolved. */
-  georeference: GeoReference | null;
+  /** Every georeferenced page resolved from the PDF (one entry per such page). */
+  georeferences: GeoReference[];
+  /** Page indexes currently rendered as map overlays (a subset of georeferences). */
+  activePages: number[];
   /** Human-readable note when georeferencing failed or is partial. */
   georeferenceWarning?: string;
 }

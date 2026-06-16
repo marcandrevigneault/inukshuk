@@ -75,6 +75,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         // We render OpenStreetMap raster tiles, so no proprietary SDK token.
       },
     ],
+    // Raise Gradle heap/metaspace so :expo-updates:kspReleaseKotlin doesn't OOM
+    // on production builds (the SDK template's 512m metaspace is too small).
+    './plugins/withGradleMemory',
   ],
   experiments: {
     typedRoutes: true,

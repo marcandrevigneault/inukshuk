@@ -3,9 +3,12 @@ import {
   applyAffine,
   bboxFromCorners,
   bboxFromLngLats,
+  cornersAreValid,
   extrapolatePageCorners,
   fitAffine,
+  isDegenerateBBox,
   isInsideBBox,
+  isValidLngLat,
   padBBox,
 } from './geomath';
 
@@ -146,5 +149,58 @@ describe('bbox helpers', () => {
   it('padBBox expands symmetrically by a fraction', () => {
     const padded = padBBox({ minLat: 0, minLng: 0, maxLat: 10, maxLng: 20 }, 0.1);
     expect(padded).toEqual({ minLat: -1, minLng: -2, maxLat: 11, maxLng: 22 });
+  });
+});
+
+describe('coordinate validation (native-crash guard)', () => {
+  it('accepts finite in-range coordinates', () => {
+    expect(isValidLngLat([-71.0, 42.4])).toBe(true);
+    expect(isValidLngLat([180, 90])).toBe(true);
+    expect(isValidLngLat([-180, -90])).toBe(true);
+    expect(isValidLngLat([0, 0])).toBe(true);
+  });
+
+  it('rejects non-finite and out-of-range coordinates', () => {
+    expect(isValidLngLat([NaN, 42])).toBe(false);
+    expect(isValidLngLat([0, Infinity])).toBe(false);
+    expect(isValidLngLat([0, -Infinity])).toBe(false);
+    expect(isValidLngLat([181, 0])).toBe(false);
+    expect(isValidLngLat([0, 91])).toBe(false);
+    // The real-world bug: a degenerate viewport extrapolated to a full page
+    // produces finite but absurd corners that crash MapLibre natively.
+    expect(isValidLngLat([-71, 5000])).toBe(false);
+  });
+
+  it('cornersAreValid is true only when every corner is valid', () => {
+    const good: CornerCoordinates = {
+      topLeft: [-71.1, 42.5],
+      topRight: [-70.9, 42.5],
+      bottomRight: [-70.9, 42.3],
+      bottomLeft: [-71.1, 42.3],
+    };
+    expect(cornersAreValid(good)).toBe(true);
+    expect(cornersAreValid({ ...good, bottomLeft: [-71.1, 9000] })).toBe(false);
+    expect(cornersAreValid({ ...good, topRight: [NaN, 42.5] })).toBe(false);
+  });
+
+  it('isDegenerateBBox flags near-zero-area extents', () => {
+    // A real map sheet (~5 km) is fine.
+    expect(isDegenerateBBox({ minLat: 47.6, minLng: -71.2, maxLat: 47.8, maxLng: -71.0 })).toBe(
+      false,
+    );
+    // The real bug: a viewport that collapsed to a sub-arcsecond point (these
+    // are the actual corners the broken GPTS reprojection produced — spans ~4e-7°).
+    expect(
+      isDegenerateBBox({
+        minLat: 0.00043013738869937854,
+        minLng: -73.48938127178322,
+        maxLat: 0.00043056141624172646,
+        maxLng: -73.489380344438,
+      }),
+    ).toBe(true);
+    // Degenerate in only one axis (a line) still counts.
+    expect(isDegenerateBBox({ minLat: 47.6, minLng: -71.0, maxLat: 47.8, maxLng: -71.0 })).toBe(
+      true,
+    );
   });
 });

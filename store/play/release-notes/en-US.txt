@@ -1,0 +1,10 @@
+Inukshuk 1.0 — offline trail navigation with your own maps.
+
+• Import georeferenced PDF maps, overlaid on live GPS
+• OpenStreetMap base layer when you're off the map
+• Record trails with live time, distance and elevation (D+/D-)
+• Save and share routes as GPX
+• Elevation profile for every recorded trail
+• Foreground-only location — nothing tracked in the background
+
+Thanks for testing! Please send feedback on map import and GPS accuracy.

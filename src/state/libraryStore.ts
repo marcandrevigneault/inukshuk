@@ -1,4 +1,4 @@
-import type { Bundle, GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
+import type { Bundle, Folder, GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
 import { bundleMapActivePages, pruneBundles, toggleId } from '@core/library/bundles';
 import * as storage from '@data/storage';
 import { create } from 'zustand';
@@ -26,6 +26,7 @@ function migrateDoc(raw: MapDocument & { georeference?: GeoReference | null }): 
     georeferences,
     activePages,
     georeferenceWarning: raw.georeferenceWarning,
+    folderId: raw.folderId,
   };
 }
 
@@ -33,6 +34,7 @@ interface LibraryIndex {
   maps: MapDocument[];
   tracks: TrackSummary[];
   bundles: Bundle[];
+  folders: Folder[];
   activeMapId: string | null;
 }
 
@@ -59,6 +61,13 @@ interface LibraryState extends LibraryIndex {
    * can show them as trail overlays (which live in the map store).
    */
   activateBundle: (id: string) => string[];
+  // Folders — flat, cross-type containers that organize maps + trails by area.
+  addFolder: (name: string) => string;
+  renameFolder: (id: string, name: string) => void;
+  /** Delete a folder; its maps/trails fall back to Ungrouped (folderId cleared). */
+  removeFolder: (id: string) => void;
+  /** Move a map or trail into a folder, or out of any folder when `folderId` is null. */
+  setItemFolder: (kind: 'map' | 'track', itemId: string, folderId: string | null) => void;
   activeMap: () => MapDocument | null;
 }
 
@@ -67,6 +76,7 @@ function persist(state: LibraryIndex): void {
     maps: state.maps,
     tracks: state.tracks,
     bundles: state.bundles,
+    folders: state.folders,
     activeMapId: state.activeMapId,
   } satisfies LibraryIndex);
 }
@@ -75,6 +85,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   maps: [],
   tracks: [],
   bundles: [],
+  folders: [],
   activeMapId: null,
   hydrated: false,
 
@@ -86,6 +97,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         maps: (index.maps ?? []).map(migrateDoc),
         tracks: index.tracks ?? [],
         bundles: index.bundles ?? [],
+        folders: index.folders ?? [],
         activeMapId: index.activeMapId ?? null,
         hydrated: true,
       });
@@ -251,6 +263,55 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     });
     return bundle.trackIds.filter((tid) => get().tracks.some((t) => t.id === tid));
   },
+
+  addFolder: (name) => {
+    const id = storage.newId();
+    set((s) => {
+      const folder: Folder = { id, name: name.trim() || 'Folder', createdAt: Date.now() };
+      const next = { ...s, folders: [...s.folders, folder] };
+      persist(next);
+      return next;
+    });
+    return id;
+  },
+
+  renameFolder: (id, name) =>
+    set((s) => {
+      const next = {
+        ...s,
+        folders: s.folders.map((f) => (f.id === id ? { ...f, name: name.trim() || f.name } : f)),
+      };
+      persist(next);
+      return next;
+    }),
+
+  removeFolder: (id) =>
+    set((s) => {
+      const clear = <T extends { folderId?: string }>(item: T): T =>
+        item.folderId === id ? { ...item, folderId: undefined } : item;
+      const next = {
+        ...s,
+        folders: s.folders.filter((f) => f.id !== id),
+        maps: s.maps.map(clear),
+        tracks: s.tracks.map(clear),
+      };
+      persist(next);
+      return next;
+    }),
+
+  setItemFolder: (kind, itemId, folderId) =>
+    set((s) => {
+      const folder = folderId ?? undefined;
+      const next =
+        kind === 'map'
+          ? { ...s, maps: s.maps.map((m) => (m.id === itemId ? { ...m, folderId: folder } : m)) }
+          : {
+              ...s,
+              tracks: s.tracks.map((t) => (t.id === itemId ? { ...t, folderId: folder } : t)),
+            };
+      persist(next);
+      return next;
+    }),
 
   activeMap: () => {
     const { maps, activeMapId } = get();

@@ -14,4 +14,6 @@ export interface MapDocument {
   activePages: number[];
   /** Human-readable note when georeferencing failed or is partial. */
   georeferenceWarning?: string;
+  /** Id of the {@link Folder} this map is organized under; undefined = Ungrouped. */
+  folderId?: string;
 }

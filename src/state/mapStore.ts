@@ -10,18 +10,23 @@ interface MapState {
   /** Ids of saved trails currently drawn on the map. */
   activeTrackIds: string[];
   followUser: boolean;
+  /** Whether PDF map overlays are drawn (visibility toggle, independent of which pages are active). */
   showPdfOverlay: boolean;
+  /** Whether trail overlays are drawn. */
+  showTrackOverlays: boolean;
   setActiveTrackIds: (ids: string[]) => void;
   toggleActiveTrack: (id: string) => void;
   clearActiveTracks: () => void;
   setFollowUser: (follow: boolean) => void;
   togglePdfOverlay: () => void;
+  toggleTrackOverlays: () => void;
 }
 
 export const useMapStore = create<MapState>((set) => ({
   activeTrackIds: [],
   followUser: true,
   showPdfOverlay: true,
+  showTrackOverlays: true,
   setActiveTrackIds: (ids) => set({ activeTrackIds: ids }),
   toggleActiveTrack: (id) =>
     set((s) => ({
@@ -32,4 +37,5 @@ export const useMapStore = create<MapState>((set) => ({
   clearActiveTracks: () => set({ activeTrackIds: [] }),
   setFollowUser: (follow) => set({ followUser: follow }),
   togglePdfOverlay: () => set((s) => ({ showPdfOverlay: !s.showPdfOverlay })),
+  toggleTrackOverlays: () => set((s) => ({ showTrackOverlays: !s.showTrackOverlays })),
 }));

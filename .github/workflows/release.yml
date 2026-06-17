@@ -29,6 +29,11 @@ jobs:
     needs: guard
     if: needs.guard.outputs.enabled == 'true'
     runs-on: ubuntu-latest
+    # `secrets` can't be referenced in a step-level `if:`; surface their presence
+    # as job-level env (which `if:` may read) instead.
+    env:
+      HAS_GSA: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON != '' }}
+      HAS_ASC: ${{ secrets.ASC_API_KEY_P8 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,11 +53,11 @@ jobs:
       # eas.json's submit profile. Missing secrets simply produce empty files;
       # eas submit will then report the specific missing credential.
       - name: Write Google Play service account key
-        if: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON != '' }}
+        if: env.HAS_GSA == 'true'
         run: printf '%s' '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
 
       - name: Write App Store Connect API key
-        if: ${{ secrets.ASC_API_KEY_P8 != '' }}
+        if: env.HAS_ASC == 'true'
         run: printf '%s' '${{ secrets.ASC_API_KEY_P8 }}' > asc-api-key.p8
 
       - name: Build and submit

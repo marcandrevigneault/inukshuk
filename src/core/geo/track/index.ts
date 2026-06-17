@@ -12,6 +12,7 @@ import { haversineMeters } from '@core/geo/geomath';
 export { haversineMeters };
 export { buildElevationProfile } from './elevationProfile';
 export type { ElevationProfile, ElevationSample } from './elevationProfile';
+export { buildImportedTrack } from './importTrack';
 
 const DEFAULT_ELEVATION_THRESHOLD_M = 3;
 const DEFAULT_MOVING_SPEED_THRESHOLD_MPS = 0.5;

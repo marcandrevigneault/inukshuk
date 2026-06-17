@@ -35,6 +35,11 @@ export const lightTheme: MD3Theme = {
     background: CREAM,
     surface: '#FBF8F2',
     surfaceVariant: '#E3DDD0',
+    // Secondary text (List descriptions, subheaders, card subtitles, inactive
+    // nav) uses this role. MD3's default (#49454F) is only ~6.9:1 on our cream
+    // cards; a near-charcoal lifts it to ~8.6:1 there / 11:1 on surface so it
+    // stays readable in bright outdoor light. Gated by theme.test.ts.
+    onSurfaceVariant: '#353A30',
     outline: STONE,
     error: '#BA1A1A',
   },
@@ -59,6 +64,8 @@ export const darkTheme: MD3Theme = {
     background: '#12150F',
     surface: '#1B1E17',
     surfaceVariant: '#43483E',
+    // Brighten secondary text for parity with the light theme's contrast.
+    onSurfaceVariant: '#D2DAC8',
     outline: STONE,
     error: '#FFB4AB',
   },

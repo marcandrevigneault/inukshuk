@@ -85,12 +85,39 @@ const asArray = <T>(v: unknown): T[] => {
   return Array.isArray(v) ? (v as T[]) : [v as T];
 };
 
+/** Find the first `*:speed` (or `speed`) key anywhere in a nested extensions object. */
+const findSpeedDeep = (obj: AnyRecord): number | undefined => {
+  for (const [k, v] of Object.entries(obj)) {
+    if (/(^|:)speed$/i.test(k)) {
+      const n = toNum(textOf(v));
+      if (n !== undefined) return n;
+    }
+    if (v && typeof v === 'object') {
+      const n = findSpeedDeep(v as AnyRecord);
+      if (n !== undefined) return n;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Ground speed in m/s from a trkpt: either a direct `<speed>` child (common in
+ * many loggers) or a `gpxtpx:speed` inside `<extensions>` (Garmin TrackPointExtension).
+ */
+const extractSpeed = (raw: AnyRecord): number | undefined => {
+  const direct = toNum(textOf(raw['speed']));
+  if (direct !== undefined) return direct;
+  const ext = raw['extensions'];
+  return ext && typeof ext === 'object' ? findSpeedDeep(ext as AnyRecord) : undefined;
+};
+
 const parsePoint = (raw: AnyRecord): TrackPoint | undefined => {
   const lat = toNum(raw[`${ATTR_PREFIX}lat`]);
   const lon = toNum(raw[`${ATTR_PREFIX}lon`]);
   if (lat === undefined || lon === undefined) return undefined;
   const altitude = toNum(textOf(raw['ele']));
   const time = isoToEpochMs(textOf(raw['time']));
+  const speed = extractSpeed(raw);
   const point: TrackPoint = {
     latitude: lat,
     longitude: lon,
@@ -99,6 +126,7 @@ const parsePoint = (raw: AnyRecord): TrackPoint | undefined => {
     time: time ?? 0,
   };
   if (altitude !== undefined) point.altitude = altitude;
+  if (speed !== undefined && speed >= 0) point.speed = speed;
   return point;
 };
 
@@ -190,6 +218,9 @@ export function buildGpx(args: { points: TrackPoint[]; metadata?: GpxMetadata })
     }
     if (p.time !== undefined && Number.isFinite(p.time) && p.time > 0) {
       node['time'] = epochMsToIso(p.time);
+    }
+    if (p.speed !== undefined && Number.isFinite(p.speed) && p.speed >= 0) {
+      node['speed'] = round(p.speed, 3);
     }
     return node;
   });

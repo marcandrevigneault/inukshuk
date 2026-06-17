@@ -6,10 +6,18 @@ import {
 import type { TrackPoint } from '@core/models';
 import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
 import { useSettingsStore } from '@state/settingsStore';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
 import { SegmentedButtons, Text, useTheme } from 'react-native-paper';
-import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, {
+  Circle,
+  Defs,
+  Line,
+  LinearGradient,
+  Path,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 
 const CHART_HEIGHT = 140;
 
@@ -22,6 +30,10 @@ interface Props {
    * caller can sync a map marker. Computed from `points` via arc-length interp.
    */
   onScrub?: (at: TrackPointAt | null) => void;
+  /** Persistent numbered note pins to draw along the profile (GPX editor). */
+  markers?: readonly { distanceM: number; label: string }[];
+  /** A persistent dashed cursor, e.g. where a new note will be anchored. */
+  selectedDistanceM?: number | null;
 }
 
 /** Pace colour ramp: 0 = slow (red) → 0.5 = amber → 1 = fast (green). */
@@ -59,7 +71,14 @@ function buildPaths(
  * drag to scrub — a marker rides the line and the readout shows elevation,
  * distance and grade at that point.
  */
-export function ElevationProfile({ points, ascentM, descentM, onScrub }: Props) {
+export function ElevationProfile({
+  points,
+  ascentM,
+  descentM,
+  onScrub,
+  markers = [],
+  selectedDistanceM = null,
+}: Props) {
   const theme = useTheme();
   const profile = useMemo(() => buildElevationProfile(points), [points]);
   const rawStyle = useSettingsStore((s) => s.elevationProfileStyle);
@@ -125,6 +144,8 @@ export function ElevationProfile({ points, ascentM, descentM, onScrub }: Props) 
         }))
       : [];
   const paths = buildPaths(pts, CHART_HEIGHT);
+  const xFor = (d: number) =>
+    (Math.max(0, Math.min(d, totalDistanceM)) / (totalDistanceM || 1)) * width;
 
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
   const onTouch = (e: GestureResponderEvent) => {
@@ -239,6 +260,48 @@ export function ElevationProfile({ points, ascentM, descentM, onScrub }: Props) 
             {style === 'pace' && !speedRange && (
               <Path d={paths.line} stroke={lineColor} strokeWidth={2.5} fill="none" />
             )}
+
+            {/* Persistent cursor: where a new note will be anchored. */}
+            {selectedDistanceM != null && (
+              <Line
+                x1={xFor(selectedDistanceM)}
+                y1={0}
+                x2={xFor(selectedDistanceM)}
+                y2={CHART_HEIGHT}
+                stroke={theme.colors.error}
+                strokeWidth={1.5}
+                strokeDasharray="3,3"
+              />
+            )}
+
+            {/* Persistent numbered note pins along the trail. */}
+            {markers.map((m, i) => {
+              const x = xFor(m.distanceM);
+              return (
+                <Fragment key={`mk${i}`}>
+                  <Line
+                    x1={x}
+                    y1={16}
+                    x2={x}
+                    y2={CHART_HEIGHT}
+                    stroke={lineColor}
+                    strokeWidth={1}
+                    opacity={0.25}
+                  />
+                  <Circle cx={x} cy={10} r={8} fill={lineColor} />
+                  <SvgText
+                    x={x}
+                    y={13.5}
+                    fontSize={9}
+                    fontWeight="bold"
+                    fill="#fff"
+                    textAnchor="middle"
+                  >
+                    {m.label}
+                  </SvgText>
+                </Fragment>
+              );
+            })}
 
             {marker && (
               <>

@@ -1,5 +1,14 @@
-import type { Bundle, Folder, GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
+import type {
+  Bundle,
+  Folder,
+  GeoReference,
+  MapDocument,
+  Track,
+  TrackNote,
+  TrackSummary,
+} from '@core/models';
 import { bundleMapActivePages, pruneBundles, toggleId } from '@core/library/bundles';
+import { removeNoteById, updateNoteText } from '@core/library/notes';
 import * as storage from '@data/storage';
 import { create } from 'zustand';
 
@@ -49,6 +58,10 @@ interface LibraryState extends LibraryIndex {
   toggleMapPage: (id: string, pageIndex: number) => void;
   addTrack: (track: Track, fileUri: string) => void;
   removeTrack: (id: string) => void;
+  // Trail annotations (GPX editor) — anchored by distance along the trail.
+  addTrackNote: (trackId: string, distanceM: number, text: string) => string;
+  updateTrackNote: (trackId: string, noteId: string, text: string) => void;
+  removeTrackNote: (trackId: string, noteId: string) => void;
   // Bundles — named collections of maps + trails.
   addBundle: (name: string) => string;
   renameBundle: (id: string, name: string) => void;
@@ -183,6 +196,51 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         ...s,
         tracks: s.tracks.filter((x) => x.id !== id),
         bundles: pruneBundles(s.bundles, { trackId: id }),
+      };
+      persist(next);
+      return next;
+    }),
+
+  addTrackNote: (trackId, distanceM, text) => {
+    const id = storage.newId();
+    set((s) => {
+      const note: TrackNote = {
+        id,
+        distanceM: Math.max(0, distanceM),
+        text: text.trim(),
+        createdAt: Date.now(),
+      };
+      const next = {
+        ...s,
+        tracks: s.tracks.map((t) =>
+          t.id === trackId ? { ...t, notes: [...(t.notes ?? []), note] } : t,
+        ),
+      };
+      persist(next);
+      return next;
+    });
+    return id;
+  },
+
+  updateTrackNote: (trackId, noteId, text) =>
+    set((s) => {
+      const next = {
+        ...s,
+        tracks: s.tracks.map((t) =>
+          t.id === trackId ? { ...t, notes: updateNoteText(t.notes ?? [], noteId, text) } : t,
+        ),
+      };
+      persist(next);
+      return next;
+    }),
+
+  removeTrackNote: (trackId, noteId) =>
+    set((s) => {
+      const next = {
+        ...s,
+        tracks: s.tracks.map((t) =>
+          t.id === trackId ? { ...t, notes: removeNoteById(t.notes ?? [], noteId) } : t,
+        ),
       };
       persist(next);
       return next;

@@ -306,6 +306,11 @@ export function LibraryScreen() {
           onPress={() => toggleElevation(t.id, t.fileUri)}
         />
         <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
+        <IconButton
+          icon="note-edit-outline"
+          onPress={() => router.navigate(`/trail/${t.id}`)}
+          accessibilityLabel="Edit notes"
+        />
         {itemMenu('track', t.id, t.folderId)}
         <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
         <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />

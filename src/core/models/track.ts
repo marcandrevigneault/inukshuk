@@ -38,6 +38,15 @@ export interface TrackStats {
   pointCount: number;
 }
 
+/** A user annotation anchored at a distance along a recorded trail. */
+export interface TrackNote {
+  id: string;
+  /** Distance from the trail start, in metres, where the note is anchored. */
+  distanceM: number;
+  text: string;
+  createdAt: number;
+}
+
 export type TrackStatus = 'recording' | 'paused' | 'finished';
 
 /** A recorded route, persisted as GPX. */
@@ -64,4 +73,6 @@ export interface TrackSummary {
   fileUri: string;
   /** Id of the {@link Folder} this trail is organized under; undefined = Ungrouped. */
   folderId?: string;
+  /** User annotations along the trail (added in the GPX editor). */
+  notes?: TrackNote[];
 }

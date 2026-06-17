@@ -227,11 +227,17 @@ function buildHtml(pdfMainSource: string, pdfWorkerSource: string): string {
           throw new Error('pageIndex ' + pageIndex + ' out of range (pageCount ' + pageCount + ')');
         }
         return doc.getPage(pageNumber).then(function (page) {
-          var baseViewport = page.getViewport({ scale: 1 });
+          // Always rasterize in the page's UNROTATED (MediaBox) coordinate space
+          // by forcing rotation: 0 — overriding any /Rotate display flag. The
+          // georeferencing (VP/Measure BBox + GPTS, and the LGIDict registration)
+          // is defined in unrotated user space, so applying /Rotate here would
+          // render the image rotated relative to its geo corners, making rotated
+          // pages (e.g. a /Rotate 90 landscape sheet) appear flipped and stretched.
+          var baseViewport = page.getViewport({ scale: 1, rotation: 0 });
           var pageWidthPt = baseViewport.width;
           var pageHeightPt = baseViewport.height;
           var scale = targetWidthPx / pageWidthPt;
-          var viewport = page.getViewport({ scale: scale });
+          var viewport = page.getViewport({ scale: scale, rotation: 0 });
           var widthPx = Math.max(1, Math.round(viewport.width));
           var heightPx = Math.max(1, Math.round(viewport.height));
 

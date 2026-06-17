@@ -1,4 +1,5 @@
 import { parseGpx } from '@core/geo/gpx';
+import type { TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
 import { formatDistance, formatElevation, formatTimestamp } from '@lib/format';
 import { useLibraryStore } from '@state/libraryStore';
@@ -8,10 +9,11 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {
+  ActivityIndicator,
   Appbar,
   Banner,
   Card,
-  Chip,
+  Checkbox,
   Divider,
   FAB,
   IconButton,
@@ -20,6 +22,7 @@ import {
   Text,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ElevationProfile } from './components/ElevationProfile';
 import { pickAndImportMap } from './importMap';
 
 export function LibraryScreen() {
@@ -28,15 +31,17 @@ export function LibraryScreen() {
 
   const maps = useLibraryStore((s) => s.maps);
   const tracks = useLibraryStore((s) => s.tracks);
-  const activeMapId = useLibraryStore((s) => s.activeMapId);
   const addMap = useLibraryStore((s) => s.addMap);
   const removeMap = useLibraryStore((s) => s.removeMap);
   const setActiveMap = useLibraryStore((s) => s.setActiveMap);
+  const toggleMapPage = useLibraryStore((s) => s.toggleMapPage);
   const removeTrack = useLibraryStore((s) => s.removeTrack);
   const setFocusedTrack = useMapStore((s) => s.setFocusedTrack);
 
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
+  const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  const [trackPoints, setTrackPoints] = useState<Record<string, TrackPoint[]>>({});
 
   const onImport = async () => {
     setBusy(true);
@@ -45,8 +50,8 @@ export function LibraryScreen() {
     if (result.kind === 'imported') {
       addMap(result.doc);
       setSnack(
-        result.doc.georeference
-          ? `Imported "${result.doc.name}"`
+        result.doc.georeferences.length > 0
+          ? `Imported "${result.doc.name}" — ${result.doc.georeferences.length} georeferenced page(s)`
           : `Imported "${result.doc.name}" — no georeferencing found`,
       );
     } else if (result.kind === 'error') {
@@ -67,6 +72,24 @@ export function LibraryScreen() {
       router.navigate('/');
     } catch {
       setSnack('Could not open track');
+    }
+  };
+
+  const toggleElevation = async (id: string, fileUri: string) => {
+    if (expandedTrack === id) {
+      setExpandedTrack(null);
+      return;
+    }
+    setExpandedTrack(id);
+    if (!trackPoints[id]) {
+      try {
+        const gpx = await storage.readFileText(fileUri);
+        const { points } = parseGpx(gpx);
+        setTrackPoints((cache) => ({ ...cache, [id]: points }));
+      } catch {
+        setSnack('Could not load elevation');
+        setExpandedTrack(null);
+      }
     }
   };
 
@@ -98,26 +121,40 @@ export function LibraryScreen() {
             <List.Item title="No maps yet" description="Tap the PDF icon to import one" />
           ) : (
             maps.map((m) => (
-              <List.Item
-                key={m.id}
-                title={m.name}
-                description={m.georeference ? `${m.pageCount} page(s)` : m.georeferenceWarning}
-                onPress={() => openMap(m.id)}
-                left={(p) => <List.Icon {...p} icon="map" />}
-                right={() => (
-                  <View style={styles.rowEnd}>
-                    {m.id === activeMapId && (
-                      <Chip compact mode="flat" style={styles.activeChip}>
-                        Active
-                      </Chip>
-                    )}
-                    <Chip compact icon={m.georeference ? 'check-decagram' : 'help-rhombus-outline'}>
-                      {m.georeference ? 'Geo' : 'No geo'}
-                    </Chip>
-                    <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
-                  </View>
+              <Card key={m.id} style={styles.trackCard} mode="contained">
+                <Card.Title
+                  title={m.name}
+                  subtitle={
+                    m.georeferences.length > 0
+                      ? `${m.pageCount} page(s) · ${m.georeferences.length} georeferenced`
+                      : m.georeferenceWarning
+                  }
+                  left={(p) => <List.Icon {...p} icon="map" />}
+                  right={() => (
+                    <View style={styles.rowEnd}>
+                      <IconButton icon="map-outline" onPress={() => openMap(m.id)} />
+                      <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
+                    </View>
+                  )}
+                />
+                {m.georeferences.length > 0 && (
+                  <Card.Content>
+                    <Text variant="labelMedium" style={styles.overlayLabel}>
+                      Show as overlay
+                    </Text>
+                    {m.georeferences.map((g) => (
+                      <Checkbox.Item
+                        key={g.pageIndex}
+                        label={`Page ${g.pageIndex + 1}`}
+                        position="leading"
+                        status={m.activePages.includes(g.pageIndex) ? 'checked' : 'unchecked'}
+                        onPress={() => toggleMapPage(m.id, g.pageIndex)}
+                        style={styles.checkboxItem}
+                      />
+                    ))}
+                  </Card.Content>
                 )}
-              />
+              </Card>
             ))
           )}
         </List.Section>
@@ -142,10 +179,24 @@ export function LibraryScreen() {
                   <Text variant="bodyMedium">↓ {formatElevation(t.stats.descentM)}</Text>
                 </Card.Content>
                 <Card.Actions>
+                  <IconButton
+                    icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
+                    onPress={() => toggleElevation(t.id, t.fileUri)}
+                  />
                   <IconButton icon="map-outline" onPress={() => viewTrack(t.fileUri, t.id)} />
                   <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
                   <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
                 </Card.Actions>
+                {expandedTrack === t.id &&
+                  (trackPoints[t.id] ? (
+                    <ElevationProfile
+                      points={trackPoints[t.id]!}
+                      ascentM={t.stats.ascentM}
+                      descentM={t.stats.descentM}
+                    />
+                  ) : (
+                    <ActivityIndicator style={styles.loader} />
+                  ))}
               </Card>
             ))
           )}
@@ -171,8 +222,10 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   banner: { marginBottom: 4 },
   rowEnd: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  activeChip: { alignSelf: 'center' },
+  overlayLabel: { opacity: 0.7, marginBottom: 2 },
+  checkboxItem: { paddingVertical: 0, paddingHorizontal: 0 },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
+  loader: { paddingVertical: 24 },
   trackStats: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 24 },
   fab: { position: 'absolute', right: 16, borderRadius: 28 },
 });

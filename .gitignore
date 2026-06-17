@@ -20,6 +20,12 @@ coverage/
 *.key
 *.mobileprovision
 
+# Store credentials & signed artifacts — never commit
+google-service-account.json
+asc-api-key.p8
+*.aab
+*.apk
+
 # Metro
 .metro-health-check*
 
@@ -42,3 +48,6 @@ yarn-error.*
 /ios
 /android
 builds/
+
+# local secret material — never commit
+.expo-token.local

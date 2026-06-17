@@ -32,7 +32,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: 'com.inukshuk.app',
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
-      backgroundColor: '#0B3D2E',
+      // Cream paper from the logo; the full-bleed foreground covers it, this only
+      // shows at the mask edges during launcher parallax.
+      backgroundColor: '#E0D8CC',
     },
     // Foreground-only location in v1 — no background or foreground-service
     // location permissions, which avoids Play's stricter background-location
@@ -52,8 +54,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-splash-screen',
       {
         image: './assets/splash-icon.png',
-        backgroundColor: '#0B3D2E',
-        imageWidth: 180,
+        // Warm paper cream from the logo, matching the in-app background for a
+        // seamless hand-off from splash to first screen.
+        backgroundColor: '#F2ECE0',
+        imageWidth: 200,
       },
     ],
     [
@@ -71,6 +75,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         // We render OpenStreetMap raster tiles, so no proprietary SDK token.
       },
     ],
+    // Raise Gradle heap/metaspace so :expo-updates:kspReleaseKotlin doesn't OOM
+    // on production builds (the SDK template's 512m metaspace is too small).
+    './plugins/withGradleMemory',
   ],
   experiments: {
     typedRoutes: true,
@@ -81,8 +88,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   updates: {
-    // OTA self-correction channel; CI publishes JS-only fixes here.
-    url: process.env.EAS_UPDATE_URL,
+    // OTA self-correction channel; CI (ota-update.yml) publishes JS-only fixes
+    // to the `production` branch. URL is the EAS Update endpoint for this project
+    // (https://u.expo.dev/<projectId>); env override allows pointing elsewhere.
+    url: process.env.EAS_UPDATE_URL ?? 'https://u.expo.dev/ba200eac-11b2-4c40-bd17-c0c66351ea54',
     fallbackToCacheTimeout: 0,
   },
   runtimeVersion: {

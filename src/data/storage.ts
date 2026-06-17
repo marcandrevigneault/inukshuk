@@ -48,6 +48,28 @@ export async function readFileBase64(uri: string): Promise<string> {
   return new File(uri).base64();
 }
 
+function overlaysDir(): Directory {
+  return new Directory(Paths.cache, 'overlays');
+}
+
+/**
+ * Write a base64-encoded PNG into the cache and return its `file://` uri.
+ *
+ * MapLibre's Android `ImageSource` cannot consume a `data:` URI — `setURL` builds
+ * a `java.net.URL` from it, which throws (no `data` protocol handler), then falls
+ * back to loading drawable resource id 0 and crashes the app. Overlays must be
+ * backed by a real file URL, so we materialize the rasterized page to disk.
+ */
+export function writeOverlayPng(id: string, base64Png: string): string {
+  const dir = overlaysDir();
+  if (!dir.exists) dir.create({ intermediates: true });
+  const file = new File(dir, `${id}.png`);
+  if (file.exists) file.delete();
+  file.create();
+  file.write(base64Png, { encoding: 'base64' });
+  return file.uri;
+}
+
 export async function readFileBytes(uri: string): Promise<Uint8Array> {
   return new File(uri).bytes();
 }

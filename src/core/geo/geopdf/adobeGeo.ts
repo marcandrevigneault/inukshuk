@@ -75,10 +75,12 @@ function cornersFromMeasure(
     const ux = bounds[i] ?? 0;
     const uy = bounds[i + 1] ?? 0;
     src.push([ux, uy]);
-    // GCS is geographic when EPSG 4326: x=lon, y=lat. For projected GCS, GPTS is
-    // still given in lat/lon (geographic) per spec — so always treat as lon/lat
-    // already WGS84 unless the reprojector is non-WGS84 (then GPTS are native).
-    dst.push(reproj.isWgs84 ? [lon, lat] : reproj.toWgs84(lon, lat));
+    // Per ISO 32000-2, GPTS are ALWAYS geographic lat/lon degrees, even when the
+    // /GCS dict names a projected EPSG (e.g. a UTM zone). They are NOT in the
+    // projected CRS's units, so they must be used as lon/lat directly — never
+    // pushed through the reprojector (doing so treats ~45°/-69° as UTM metres and
+    // collapses the whole page to a degenerate point near (central-meridian, 0)).
+    dst.push([lon, lat]);
   }
 
   // Map each bbox corner (in unit space) through an affine fit of src->dst.

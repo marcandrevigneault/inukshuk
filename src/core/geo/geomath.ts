@@ -5,6 +5,22 @@ import type { BoundingBox, CornerCoordinates, LatLng, LngLat, PointRect } from '
  * No React-Native or platform dependencies — fully unit-testable.
  */
 
+/** Mean earth radius in metres (IUGG), the value GPX/GIS tooling expects. */
+const EARTH_RADIUS_M = 6371008.8;
+const DEG2RAD = Math.PI / 180;
+
+/** Great-circle distance between two coordinates, in metres. */
+export function haversineMeters(a: LatLng, b: LatLng): number {
+  const lat1 = a.latitude * DEG2RAD;
+  const lat2 = b.latitude * DEG2RAD;
+  const dLat = (b.latitude - a.latitude) * DEG2RAD;
+  const dLng = (b.longitude - a.longitude) * DEG2RAD;
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** A 2D affine transform mapping (x, y) -> (a*x + b*y + c, d*x + e*y + f). */
 export interface Affine2D {
   a: number;
@@ -148,6 +164,42 @@ export function extrapolatePageCorners(
     bottomRight: at(targetRect.x1, targetRect.y0),
     bottomLeft: at(targetRect.x0, targetRect.y0),
   };
+}
+
+/**
+ * True if a coordinate is finite and within valid geographic range. MapLibre's
+ * native ImageSource crashes the whole app (not a catchable JS error) when given
+ * NaN/Infinity or wildly out-of-range corners — which can happen when a
+ * georeference viewport is extrapolated to a full page. Overlays MUST validate
+ * their corners with this before handing them to the native layer.
+ */
+export function isValidLngLat(p: LngLat): boolean {
+  const [lng, lat] = p;
+  return (
+    Number.isFinite(lng) &&
+    Number.isFinite(lat) &&
+    lng >= -180 &&
+    lng <= 180 &&
+    lat >= -90 &&
+    lat <= 90
+  );
+}
+
+/** True if all four corners are finite and in-range (safe to render natively). */
+export const cornersAreValid = (c: CornerCoordinates): boolean =>
+  isValidLngLat(c.topLeft) &&
+  isValidLngLat(c.topRight) &&
+  isValidLngLat(c.bottomRight) &&
+  isValidLngLat(c.bottomLeft);
+
+/**
+ * True if a bbox is effectively a point or a line (near-zero area). A degenerate
+ * image quad can crash MapLibre's projection, and is never a real map sheet — so
+ * overlays skip these. The default ~1e-6° threshold is ~0.1 m, far below any real
+ * page extent but well above the sub-arcsecond collapse a bad georeference makes.
+ */
+export function isDegenerateBBox(b: BoundingBox, minSpanDeg = 1e-6): boolean {
+  return b.maxLat - b.minLat < minSpanDeg || b.maxLng - b.minLng < minSpanDeg;
 }
 
 export function bboxFromLngLats(points: readonly LngLat[]): BoundingBox {

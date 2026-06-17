@@ -35,8 +35,11 @@ const PDFJS_WORKER_ASSET =
   require('../../../assets/pdfjs/pdf.worker.legacy.min.js.pdfjs') as number;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-/** Per-request timeout. A multi-MB page render should finish well under this. */
-const RENDER_TIMEOUT_MS = 30_000;
+/**
+ * Per-request timeout. Generous enough to cover the worker watchdog (12s) plus a
+ * full main-thread fake-worker retry render of a multi-MB page.
+ */
+const RENDER_TIMEOUT_MS = 45_000;
 
 /** Default target raster width in CSS px when the caller does not specify one. */
 const DEFAULT_TARGET_WIDTH_PX = 2048;
@@ -144,14 +147,17 @@ function buildHtml(pdfMainSource: string, pdfWorkerSource: string): string {
     return;
   }
 
-  // Wire a same-origin Blob worker. Stays fully offline (no network fetch).
+  // Point pdf.js at the worker via a same-origin Blob URL (fully offline). Using
+  // workerSrc — rather than manually constructing a Worker and assigning
+  // workerPort — lets pdf.js own the worker lifecycle and, crucially, fall back
+  // to its main-thread "fake worker" if the Android System WebView can't spin up
+  // a real Blob Worker. The manual workerPort path had no such fallback and hung
+  // forever (30s render timeout) when the worker initialized silently-broken.
   try {
     var blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
-    var workerUrl = URL.createObjectURL(blob);
-    var worker = new Worker(workerUrl);
-    window.pdfjsLib.GlobalWorkerOptions.workerPort = worker;
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
   } catch (e) {
-    // Fall back to the main-thread fake worker.
+    // Last resort: empty workerSrc forces the main-thread fake worker.
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   }
 
@@ -175,11 +181,15 @@ function buildHtml(pdfMainSource: string, pdfWorkerSource: string): string {
     return bytes;
   }
 
-  window.__pdfRender = function (id, pageIndex, targetWidthPx) {
-    var base64 = chunks.join('');
-    chunks = [];
+  // Watchdog: if pdf.js can't even load the document within this window, the
+  // real Blob worker has most likely wedged. We then force the main-thread fake
+  // worker and retry exactly once, so a hostile WebView worker can't hang us.
+  var LOAD_WATCHDOG_MS = 12000;
+
+  function renderOnce(id, pageIndex, targetWidthPx, base64, attempt) {
     var bytes;
     try {
+      // Decode fresh each attempt: getDocument may transfer/detach the buffer.
       bytes = base64ToBytes(base64);
     } catch (e) {
       post({ id: id, ok: false, error: 'base64 decode failed: ' + (e && e.message) });
@@ -192,8 +202,25 @@ function buildHtml(pdfMainSource: string, pdfWorkerSource: string): string {
       disableFontFace: false,
     });
 
+    var settled = false;
+    var watchdog = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      try { loadingTask.destroy(); } catch (e) {}
+      if (attempt === 0) {
+        // Drop to the main-thread fake worker and retry once.
+        try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = ''; } catch (e) {}
+        renderOnce(id, pageIndex, targetWidthPx, base64, 1);
+      } else {
+        post({ id: id, ok: false, error: 'pdf load stalled in both worker modes' });
+      }
+    }, LOAD_WATCHDOG_MS);
+
     loadingTask.promise
       .then(function (doc) {
+        if (settled) return undefined;
+        settled = true;
+        clearTimeout(watchdog);
         var pageCount = doc.numPages;
         var pageNumber = pageIndex + 1;
         if (pageNumber < 1 || pageNumber > pageCount) {
@@ -234,8 +261,17 @@ function buildHtml(pdfMainSource: string, pdfWorkerSource: string): string {
         });
       })
       .catch(function (err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
         post({ id: id, ok: false, error: (err && err.message) ? err.message : String(err) });
       });
+  }
+
+  window.__pdfRender = function (id, pageIndex, targetWidthPx) {
+    var base64 = chunks.join('');
+    chunks = [];
+    renderOnce(id, pageIndex, targetWidthPx, base64, 0);
   };
 
   post({ id: '__ready__', ok: true });

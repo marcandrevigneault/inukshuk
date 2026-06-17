@@ -115,6 +115,32 @@ describe('parseGeoPdf — Adobe VP/Measure GEO', () => {
     expect(g.viewport.corners.bottomRight[1]).toBeCloseTo(45, 6);
   });
 
+  it('treats GPTS as geographic even when /GCS names a projected EPSG (regression)', () => {
+    // Real GeoPDFs (e.g. Canadian topo sheets) declare a projected /GCS such as
+    // UTM 19N (EPSG:32619) but per ISO 32000-2 the GPTS values are STILL
+    // geographic lat/lon degrees. A previous bug reprojected them through the UTM
+    // transform, collapsing every page to a degenerate point near (~-73.5, ~0).
+    // The corners must come out as the geographic GPTS values, untouched.
+    const page =
+      '<< /Type /Page /MediaBox [0 0 200 100] /VP [ ' +
+      '<< /Type /Viewport /BBox [0 0 200 100] ' +
+      '/Measure << /Type /Measure /Subtype /GEO ' +
+      '/BOUNDS [0 0 0 1 1 1 1 0] ' +
+      '/GPTS [47 -71 48 -71 48 -70 47 -70] ' +
+      '/GCS << /Type /PROJCS /EPSG 32619 >> ' +
+      '>> >> ] >>';
+    const res = parseGeoPdf(pdfWithPage(page));
+    expect(res.georeferences).toHaveLength(1);
+    const g = res.georeferences[0]!;
+    expect(g.sourceEpsg).toBe(32619);
+    // Geographic GPTS used directly — NOT reprojected/collapsed.
+    expect(g.viewport.corners.topLeft[0]).toBeCloseTo(-71, 6);
+    expect(g.viewport.corners.topLeft[1]).toBeCloseTo(48, 6);
+    expect(g.viewport.corners.bottomRight[0]).toBeCloseTo(-70, 6);
+    expect(g.viewport.corners.bottomRight[1]).toBeCloseTo(47, 6);
+    expect(g.bbox.maxLat - g.bbox.minLat).toBeCloseTo(1, 6);
+  });
+
   it('reads GCS WKT to detect EPSG when no /EPSG key present', () => {
     const wkt = 'GEOGCS[\\"WGS 84\\",DATUM[\\"WGS_1984\\"],AUTHORITY[\\"EPSG\\",\\"4326\\"]]';
     const page =

@@ -30,6 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The RN + reanimated/worklets NDK build exhausts the runner's small disk
+      # ("No space left on device"). Reclaim the large preinstalled toolchains we
+      # don't use (dotnet ~25GB, GHC, boost, swift) before building.
+      - name: Free up runner disk space
+        run: |
+          echo "Before:"; df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/share/swift
+          sudo docker image prune --all --force || true
+          echo "After:"; df -h /
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -59,9 +69,17 @@ jobs:
 
   ios:
     name: iOS (xcodebuild simulator)
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      # A Swift Package dependency requires Swift tools 6.2; the image's default
+      # Xcode 16.4 ships Swift 6.1, so package resolution fails ("Could not
+      # resolve package dependencies"). Select the newest stable Xcode (Swift 6.2+).
+      - name: Select newest Xcode (Swift 6.2+)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - uses: actions/setup-node@v4
         with:

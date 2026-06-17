@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Blocking: catches a `react` / native-renderer (or any SDK-pinned dep)
+      # version drift that typechecks and unit-tests green but crashes the app
+      # at runtime — exactly the class of bug that shipped in #8.
+      - name: Verify SDK-pinned dependency versions
+        run: npx expo install --check
+
       - name: TypeScript typecheck
         run: npm run typecheck
 

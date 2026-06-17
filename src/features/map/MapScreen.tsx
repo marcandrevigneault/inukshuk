@@ -1,3 +1,4 @@
+import type { BoundingBox } from '@core/models';
 import { mapColors } from '@ui/theme';
 import {
   Camera,
@@ -24,7 +25,7 @@ import { toLineFeature, toLngLatBounds } from './geojson';
 import { buildOsmStyle } from './mapStyle';
 import { useCompass } from './useCompass';
 import { useLocationTracking } from './useLocation';
-import { usePdfOverlay } from './usePdfOverlay';
+import { usePdfOverlays } from './usePdfOverlay';
 
 export function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -37,8 +38,8 @@ export function MapScreen() {
   const { permission } = useLocationTracking();
   const heading = useCompass();
 
-  const activeMap = useLibraryStore((s) => (s.activeMapId ? s.activeMap() : null));
-  const { overlay, error: overlayError } = usePdfOverlay(activeMap);
+  const maps = useLibraryStore((s) => s.maps);
+  const { overlays, error: overlayError } = usePdfOverlays(maps);
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
@@ -85,10 +86,27 @@ export function MapScreen() {
     [focusedTrack],
   );
 
+  // Union bounds of all active overlays, for the "fit to page" control.
+  const overlaysBbox = useMemo<BoundingBox | null>(() => {
+    if (overlays.length === 0) return null;
+    return overlays.reduce<BoundingBox | null>(
+      (acc, o) =>
+        acc === null
+          ? o.bbox
+          : {
+              minLat: Math.min(acc.minLat, o.bbox.minLat),
+              minLng: Math.min(acc.minLng, o.bbox.minLng),
+              maxLat: Math.max(acc.maxLat, o.bbox.maxLat),
+              maxLng: Math.max(acc.maxLng, o.bbox.maxLng),
+            },
+      null,
+    );
+  }, [overlays]);
+
   const fitActiveMap = () => {
-    if (overlay) {
+    if (overlaysBbox) {
       setFollowUser(false);
-      cameraRef.current?.fitBounds(toLngLatBounds(overlay.bbox), {
+      cameraRef.current?.fitBounds(toLngLatBounds(overlaysBbox), {
         duration: 600,
         padding: { top: 48, right: 48, bottom: 48, left: 48 },
       });
@@ -124,11 +142,12 @@ export function MapScreen() {
           maxZoom={20}
         />
 
-        {overlay && showPdfOverlay && (
-          <ImageSource id="pdf-overlay" url={overlay.pngDataUri} coordinates={overlay.coordinates}>
-            <Layer id="pdf-overlay-layer" type="raster" paint={{ 'raster-opacity': 0.92 }} />
-          </ImageSource>
-        )}
+        {showPdfOverlay &&
+          overlays.map((o) => (
+            <ImageSource key={o.id} id={o.id} url={o.imageUri} coordinates={o.coordinates}>
+              <Layer id={`${o.id}-layer`} type="raster" paint={{ 'raster-opacity': 0.92 }} />
+            </ImageSource>
+          ))}
 
         {focusedFeature && (
           <GeoJSONSource id="focused-track" data={focusedFeature}>
@@ -175,7 +194,7 @@ export function MapScreen() {
           onPress={() => setFollowUser(true)}
           style={styles.controlFab}
         />
-        {activeMap?.georeference && (
+        {overlays.length > 0 && (
           <>
             <FAB
               icon="fit-to-page-outline"

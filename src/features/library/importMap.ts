@@ -34,7 +34,6 @@ export async function pickAndImportMap(): Promise<ImportResult> {
     const fileUri = await storage.importPdf(asset.uri, id);
     const bytes = await storage.readFileBytes(fileUri);
     const parsed = parseGeoPdf(bytes);
-    const georeference = parsed.georeferences[0] ?? null;
 
     const doc: MapDocument = {
       id,
@@ -42,10 +41,14 @@ export async function pickAndImportMap(): Promise<ImportResult> {
       fileUri,
       importedAt: Date.now(),
       pageCount: parsed.pageCount,
-      georeference,
-      georeferenceWarning: georeference
-        ? undefined
-        : (parsed.warnings[0] ?? 'No georeferencing found in this PDF.'),
+      georeferences: parsed.georeferences,
+      // Default to showing every georeferenced page; the user can uncheck pages
+      // they don't want from the Library.
+      activePages: parsed.georeferences.map((g) => g.pageIndex),
+      georeferenceWarning:
+        parsed.georeferences.length > 0
+          ? undefined
+          : (parsed.warnings[0] ?? 'No georeferencing found in this PDF.'),
     };
     return { kind: 'imported', doc };
   } catch (err) {

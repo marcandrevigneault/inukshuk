@@ -16,7 +16,7 @@ import { useSettingsStore } from '@state/settingsStore';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Banner, FAB, Snackbar } from 'react-native-paper';
+import { Banner, FAB, Menu, Snackbar } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompassBadge } from './components/CompassBadge';
 import { RecordControls } from './components/RecordControls';
@@ -48,6 +48,9 @@ export function MapScreen() {
   const setFollowUser = useMapStore((s) => s.setFollowUser);
   const showPdfOverlay = useMapStore((s) => s.showPdfOverlay);
   const togglePdfOverlay = useMapStore((s) => s.togglePdfOverlay);
+  const showTrackOverlays = useMapStore((s) => s.showTrackOverlays);
+  const toggleTrackOverlays = useMapStore((s) => s.toggleTrackOverlays);
+  const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
 
   const status = useRecorderStore((s) => s.status);
   const name = useRecorderStore((s) => s.name);
@@ -153,16 +156,17 @@ export function MapScreen() {
             </ImageSource>
           ))}
 
-        {trackOverlays.map((t) => (
-          <GeoJSONSource key={t.id} id={`track-${t.id}`} data={t.feature}>
-            <Layer
-              id={`track-${t.id}-line`}
-              type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#3B6FB0', 'line-width': 4, 'line-opacity': 0.85 }}
-            />
-          </GeoJSONSource>
-        ))}
+        {showTrackOverlays &&
+          trackOverlays.map((t) => (
+            <GeoJSONSource key={t.id} id={`track-${t.id}`} data={t.feature}>
+              <Layer
+                id={`track-${t.id}-line`}
+                type="line"
+                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                paint={{ 'line-color': '#3B6FB0', 'line-width': 4, 'line-opacity': 0.85 }}
+              />
+            </GeoJSONSource>
+          ))}
 
         {trailFeature && (
           <GeoJSONSource id="trail" data={trailFeature}>
@@ -199,22 +203,41 @@ export function MapScreen() {
           style={styles.controlFab}
         />
         {overlays.length > 0 && (
-          <>
-            <FAB
-              icon="fit-to-page-outline"
-              size="small"
-              variant="surface"
-              onPress={fitActiveMap}
-              style={styles.controlFab}
-            />
-            <FAB
-              icon={showPdfOverlay ? 'layers' : 'layers-off'}
-              size="small"
-              variant="surface"
+          <FAB
+            icon="fit-to-page-outline"
+            size="small"
+            variant="surface"
+            onPress={fitActiveMap}
+            style={styles.controlFab}
+          />
+        )}
+        {(overlays.length > 0 || trackOverlays.length > 0) && (
+          <Menu
+            visible={overlayMenuOpen}
+            onDismiss={() => setOverlayMenuOpen(false)}
+            anchor={
+              <FAB
+                icon="layers"
+                size="small"
+                variant="surface"
+                onPress={() => setOverlayMenuOpen(true)}
+                style={styles.controlFab}
+                accessibilityLabel="Overlays"
+              />
+            }
+          >
+            {/* Layer visibility toggles. Extensible: future overlay types add a row here. */}
+            <Menu.Item
+              leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
               onPress={togglePdfOverlay}
-              style={styles.controlFab}
+              title={`PDF overlays (${overlays.length})`}
             />
-          </>
+            <Menu.Item
+              leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
+              onPress={toggleTrackOverlays}
+              title={`Trail overlays (${trackOverlays.length})`}
+            />
+          </Menu>
         )}
       </View>
 

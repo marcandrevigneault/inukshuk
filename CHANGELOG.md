@@ -19,6 +19,11 @@ on the same app version; native changes require a new store build. See
   was the active map it re-crashed on every launch. GPTS are now treated as
   geographic per ISO 32000-2, and overlays validate their corners (finite,
   in-range, non-degenerate) before reaching the native layer.
+- **PDF overlays now actually render on Android.** Two further on-device blockers:
+  the pdf.js offscreen rasterizer hung on the WebView's Blob worker (now uses
+  `workerSrc` with a watchdog that falls back to the main-thread worker), and the
+  rasterized page was handed to MapLibre as a `data:` URI, which crashed its
+  native `ImageSource` (now written to a cache file and referenced by `file://`).
 
 ### Added
 

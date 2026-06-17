@@ -144,7 +144,7 @@ export function MapScreen() {
 
         {showPdfOverlay &&
           overlays.map((o) => (
-            <ImageSource key={o.id} id={o.id} url={o.pngDataUri} coordinates={o.coordinates}>
+            <ImageSource key={o.id} id={o.id} url={o.imageUri} coordinates={o.coordinates}>
               <Layer id={`${o.id}-layer`} type="raster" paint={{ 'raster-opacity': 0.92 }} />
             </ImageSource>
           ))}

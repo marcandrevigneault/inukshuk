@@ -12,7 +12,8 @@ import { usePdfRasterizer } from './PdfRasterizer';
 export interface PdfOverlay {
   /** Stable id `${docId}:${pageIndex}`, also used as the MapLibre source id. */
   id: string;
-  pngDataUri: string;
+  /** `file://` uri of the rasterized PNG (MapLibre can't take a data: URI). */
+  imageUri: string;
   /** MapLibre ImageSource ordering: top-left, top-right, bottom-right, bottom-left. */
   coordinates: [LngLat, LngLat, LngLat, LngLat];
   bbox: BoundingBox;
@@ -89,9 +90,13 @@ export function usePdfOverlays(maps: MapDocument[]): PdfOverlaysState {
           const base64 = await storage.readFileBase64(t.fileUri);
           const raster = await rasterize({ base64, pageIndex: geo.pageIndex });
           if (cancelled) return;
+          // MapLibre's ImageSource needs a file:// url, not a data: URI — write
+          // the rasterized PNG to the cache and reference it by file path.
+          const pngBase64 = raster.pngDataUri.replace(/^data:image\/png;base64,/, '');
+          const imageUri = storage.writeOverlayPng(`${t.docId}_${geo.pageIndex}`, pngBase64);
           overlays.push({
             id: `${t.docId}:${geo.pageIndex}`,
-            pngDataUri: raster.pngDataUri,
+            imageUri,
             coordinates: [
               corners.topLeft,
               corners.topRight,

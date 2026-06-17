@@ -54,7 +54,22 @@ export function MapScreen() {
   const togglePdfOverlay = useMapStore((s) => s.togglePdfOverlay);
   const showTrackOverlays = useMapStore((s) => s.showTrackOverlays);
   const toggleTrackOverlays = useMapStore((s) => s.toggleTrackOverlays);
+  const focusBounds = useMapStore((s) => s.focusBounds);
+  const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
+
+  // Consume a one-shot "fit these bounds" request (e.g. "view trail" from the
+  // Library) — fly to the trail instead of staying on the user's location.
+  useEffect(() => {
+    if (!focusBounds) return;
+    setFollowUser(false);
+    cameraRef.current?.fitBounds(toLngLatBounds(focusBounds), {
+      duration: 600,
+      padding: { top: 60, right: 60, bottom: 220, left: 60 },
+    });
+    setFocusBounds(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusBounds]);
 
   // Trail inspection: tap a trail trace to open its elevation profile; scrubbing
   // the profile drives a marker along the trace (markerAt).

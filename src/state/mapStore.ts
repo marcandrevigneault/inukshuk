@@ -1,3 +1,4 @@
+import type { BoundingBox } from '@core/models';
 import { create } from 'zustand';
 
 /**
@@ -14,12 +15,15 @@ interface MapState {
   showPdfOverlay: boolean;
   /** Whether trail overlays are drawn. */
   showTrackOverlays: boolean;
+  /** One-shot request for the map to fit these bounds (e.g. "view trail"). */
+  focusBounds: BoundingBox | null;
   setActiveTrackIds: (ids: string[]) => void;
   toggleActiveTrack: (id: string) => void;
   clearActiveTracks: () => void;
   setFollowUser: (follow: boolean) => void;
   togglePdfOverlay: () => void;
   toggleTrackOverlays: () => void;
+  setFocusBounds: (b: BoundingBox | null) => void;
 }
 
 export const useMapStore = create<MapState>((set) => ({
@@ -27,6 +31,8 @@ export const useMapStore = create<MapState>((set) => ({
   followUser: true,
   showPdfOverlay: true,
   showTrackOverlays: true,
+  focusBounds: null,
+  setFocusBounds: (b) => set({ focusBounds: b }),
   setActiveTrackIds: (ids) => set({ activeTrackIds: ids }),
   toggleActiveTrack: (id) =>
     set((s) => ({

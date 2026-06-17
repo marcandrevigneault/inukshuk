@@ -6,7 +6,7 @@ import { useLibraryStore } from '@state/libraryStore';
 import { useMapStore } from '@state/mapStore';
 import * as Sharing from 'expo-sharing';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
@@ -18,12 +18,15 @@ import {
   Dialog,
   Divider,
   FAB,
+  Icon,
   IconButton,
   List,
+  Menu,
   Portal,
   Snackbar,
   Text,
   TextInput,
+  TouchableRipple,
 } from 'react-native-paper';
 import { bundleCounts } from '@core/library/bundles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,6 +61,10 @@ export function LibraryScreen() {
   const [editingBundle, setEditingBundle] = useState<string | null>(null);
   const [newBundleVisible, setNewBundleVisible] = useState(false);
   const [newBundleName, setNewBundleName] = useState('');
+  const [collapsed, setCollapsed] = useState({ bundles: false, maps: false, trails: false });
+  const toggleSection = (key: 'bundles' | 'maps' | 'trails') =>
+    setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+  const [bundleMenu, setBundleMenu] = useState<{ kind: 'map' | 'track'; id: string } | null>(null);
 
   const onImport = async () => {
     setBusy(true);
@@ -138,6 +145,52 @@ export function LibraryScreen() {
     }
   };
 
+  const sectionHeader = (key: 'bundles' | 'maps' | 'trails', title: string, action?: ReactNode) => (
+    <TouchableRipple onPress={() => toggleSection(key)} accessibilityRole="button">
+      <View style={styles.sectionHeaderRow}>
+        <View style={styles.sectionHeaderLeft}>
+          <Icon source={collapsed[key] ? 'chevron-right' : 'chevron-down'} size={22} />
+          <List.Subheader>{title}</List.Subheader>
+        </View>
+        {action}
+      </View>
+    </TouchableRipple>
+  );
+
+  // A "add to bundle" menu shown from a map/trail card — toggles this item's
+  // membership in each bundle without leaving the item.
+  const addToBundleMenu = (kind: 'map' | 'track', id: string) => (
+    <Menu
+      visible={bundleMenu?.kind === kind && bundleMenu.id === id}
+      onDismiss={() => setBundleMenu(null)}
+      anchor={
+        <IconButton
+          icon="playlist-plus"
+          onPress={() => setBundleMenu({ kind, id })}
+          accessibilityLabel="Add to bundle"
+        />
+      }
+    >
+      {bundles.length === 0 ? (
+        <Menu.Item disabled title="No bundles — create one above" />
+      ) : (
+        bundles.map((b) => {
+          const inBundle = kind === 'map' ? b.mapIds.includes(id) : b.trackIds.includes(id);
+          return (
+            <Menu.Item
+              key={b.id}
+              leadingIcon={inBundle ? 'checkbox-marked' : 'checkbox-blank-outline'}
+              title={b.name}
+              onPress={() =>
+                kind === 'map' ? toggleBundleMap(b.id, id) : toggleBundleTrack(b.id, id)
+              }
+            />
+          );
+        })
+      )}
+    </Menu>
+  );
+
   return (
     <View style={styles.fill}>
       <Appbar.Header>
@@ -154,13 +207,14 @@ export function LibraryScreen() {
         )}
 
         <List.Section>
-          <View style={styles.sectionHeaderRow}>
-            <List.Subheader>Bundles</List.Subheader>
+          {sectionHeader(
+            'bundles',
+            `Bundles${bundles.length ? ` (${bundles.length})` : ''}`,
             <Button compact icon="plus" onPress={() => setNewBundleVisible(true)}>
               New
-            </Button>
-          </View>
-          {bundles.length === 0 ? (
+            </Button>,
+          )}
+          {collapsed.bundles ? null : bundles.length === 0 ? (
             <List.Item
               title="No bundles yet"
               description="Group maps & trails to activate a whole set in one tap"
@@ -231,8 +285,8 @@ export function LibraryScreen() {
         <Divider />
 
         <List.Section>
-          <List.Subheader>Maps</List.Subheader>
-          {maps.length === 0 ? (
+          {sectionHeader('maps', `Maps${maps.length ? ` (${maps.length})` : ''}`)}
+          {collapsed.maps ? null : maps.length === 0 ? (
             <List.Item title="No maps yet" description="Tap the PDF icon to import one" />
           ) : (
             maps.map((m) => (
@@ -247,6 +301,7 @@ export function LibraryScreen() {
                   left={(p) => <List.Icon {...p} icon="map" />}
                   right={() => (
                     <View style={styles.rowEnd}>
+                      {addToBundleMenu('map', m.id)}
                       <IconButton icon="map-outline" onPress={() => openMap(m.id)} />
                       <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
                     </View>
@@ -277,8 +332,8 @@ export function LibraryScreen() {
         <Divider />
 
         <List.Section>
-          <List.Subheader>Recorded trails</List.Subheader>
-          {tracks.length === 0 ? (
+          {sectionHeader('trails', `Recorded trails${tracks.length ? ` (${tracks.length})` : ''}`)}
+          {collapsed.trails ? null : tracks.length === 0 ? (
             <List.Item
               title="No trails yet"
               description="Record one from the Map tab, or import a GPX file (route icon above)"
@@ -302,6 +357,7 @@ export function LibraryScreen() {
                     onPress={() => toggleElevation(t.id, t.fileUri)}
                   />
                   <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
+                  {addToBundleMenu('track', t.id)}
                   <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
                   <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
                 </Card.Actions>
@@ -365,7 +421,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingRight: 8,
   },
-  overlayLabel: { opacity: 0.7, marginBottom: 2, marginTop: 4 },
+  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center' },
+  overlayLabel: { marginBottom: 2, marginTop: 4 },
   checkboxItem: { paddingVertical: 0, paddingHorizontal: 0 },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
   loader: { paddingVertical: 24 },

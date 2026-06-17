@@ -1,6 +1,10 @@
-import { buildElevationProfile } from '@core/geo/track';
+import {
+  buildElevationProfile,
+  interpolateTrackAtDistance,
+  type TrackPointAt,
+} from '@core/geo/track';
 import type { TrackPoint } from '@core/models';
-import { formatDistance, formatElevation } from '@lib/format';
+import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
 import { useSettingsStore } from '@state/settingsStore';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
@@ -8,13 +12,32 @@ import { SegmentedButtons, Text, useTheme } from 'react-native-paper';
 import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 
 const CHART_HEIGHT = 140;
-const H_GRID = 4; // horizontal grid divisions
-const V_GRID = 6; // vertical grid divisions
 
 interface Props {
   points: readonly TrackPoint[];
   ascentM: number;
   descentM: number;
+  /**
+   * Reports the scrubbed position along the track (or null when released) so a
+   * caller can sync a map marker. Computed from `points` via arc-length interp.
+   */
+  onScrub?: (at: TrackPointAt | null) => void;
+}
+
+/** Pace colour ramp: 0 = slow (red) → 0.5 = amber → 1 = fast (green). */
+function paceColor(t: number): string {
+  const stops = [
+    [0xd7, 0x30, 0x27],
+    [0xfd, 0xae, 0x61],
+    [0x1a, 0x98, 0x50],
+  ];
+  const x = Math.max(0, Math.min(1, t));
+  const seg = x < 0.5 ? 0 : 1;
+  const local = x < 0.5 ? x / 0.5 : (x - 0.5) / 0.5;
+  const a = stops[seg]!;
+  const b = stops[seg + 1]!;
+  const c = a.map((v, i) => Math.round(v + (b[i]! - v) * local));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 /** Build SVG path `d` strings (line + closed area) from screen-space points. */
@@ -36,22 +59,44 @@ function buildPaths(
  * drag to scrub — a marker rides the line and the readout shows elevation,
  * distance and grade at that point.
  */
-export function ElevationProfile({ points, ascentM, descentM }: Props) {
+export function ElevationProfile({ points, ascentM, descentM, onScrub }: Props) {
   const theme = useTheme();
   const profile = useMemo(() => buildElevationProfile(points), [points]);
-  const style = useSettingsStore((s) => s.elevationProfileStyle);
+  const rawStyle = useSettingsStore((s) => s.elevationProfileStyle);
+  const style = rawStyle === 'pace' ? 'pace' : 'gradient'; // coerce legacy values
   const setStyle = useSettingsStore((s) => s.set);
   const [width, setWidth] = useState(0);
   const [scrub, setScrub] = useState<number | null>(null);
+  const [scrubAt, setScrubAt] = useState<TrackPointAt | null>(null);
+
+  // Speed at each profile sample (for the 'pace' colouring), + its range.
+  const speeds = useMemo(
+    () =>
+      profile.hasElevation
+        ? profile.samples.map((s) => interpolateTrackAtDistance(points, s.distanceM)?.speed)
+        : [],
+    [points, profile],
+  );
+  const speedRange = useMemo(() => {
+    const vals = speeds.filter((v): v is number => v !== undefined && Number.isFinite(v) && v >= 0);
+    if (vals.length < 2) return null;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of vals) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return hi > lo ? { lo, hi } : null;
+  }, [speeds]);
 
   const styleSelector = (
     <SegmentedButtons
       value={style}
-      onValueChange={(v) => setStyle('elevationProfileStyle', v as 'gradient' | 'grid')}
+      onValueChange={(v) => setStyle('elevationProfileStyle', v as 'gradient' | 'pace')}
       density="small"
       buttons={[
         { value: 'gradient', label: 'Gradient', icon: 'chart-areaspline' },
-        { value: 'grid', label: 'Grid', icon: 'grid' },
+        { value: 'pace', label: 'Pace', icon: 'speedometer' },
         { value: '3d', label: '3D', icon: 'video-3d', disabled: true },
       ]}
     />
@@ -85,7 +130,16 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
   const onTouch = (e: GestureResponderEvent) => {
     if (width <= 0) return;
     const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
-    setScrub(Math.round(ratio * lastIdx));
+    const idx = Math.round(ratio * lastIdx);
+    setScrub(idx);
+    const at = interpolateTrackAtDistance(points, samples[idx]!.distanceM);
+    setScrubAt(at);
+    onScrub?.(at);
+  };
+  const endScrub = () => {
+    setScrub(null);
+    setScrubAt(null);
+    onScrub?.(null);
   };
 
   const active = scrub === null ? null : samples[scrub]!;
@@ -124,6 +178,7 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
           <Text variant="bodySmall" style={{ color: theme.colors.primary }}>
             {formatElevation(active.elevationM)} @ {formatDistance(active.distanceM)}
             {grade !== null ? ` · ${grade >= 0 ? '+' : ''}${grade.toFixed(0)}%` : ''}
+            {scrubAt?.speed !== undefined ? ` · ${formatSpeed(scrubAt.speed)}` : ''}
           </Text>
         ) : (
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -136,10 +191,16 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
         style={[styles.chart, { backgroundColor: theme.colors.surfaceVariant }]}
         onLayout={onLayout}
         onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onStartShouldSetResponderCapture={() => true}
+        onMoveShouldSetResponderCapture={() => true}
+        // Keep the gesture until the finger lifts — vertical motion must not hand
+        // the touch to the surrounding ScrollView and cancel scrubbing.
+        onResponderTerminationRequest={() => false}
         onResponderGrant={onTouch}
         onResponderMove={onTouch}
-        onResponderRelease={() => setScrub(null)}
-        onResponderTerminate={() => setScrub(null)}
+        onResponderRelease={endScrub}
+        onResponderTerminate={endScrub}
       >
         {width > 0 && (
           <Svg width={width} height={CHART_HEIGHT}>
@@ -150,41 +211,34 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
               </LinearGradient>
             </Defs>
 
-            {style === 'grid' &&
-              Array.from({ length: H_GRID + 1 }, (_, i) => {
-                const y = (i / H_GRID) * CHART_HEIGHT;
-                return (
-                  <Line
-                    key={`h${i}`}
-                    x1={0}
-                    y1={y}
-                    x2={width}
-                    y2={y}
-                    stroke={theme.colors.onSurfaceVariant}
-                    strokeWidth={0.5}
-                    opacity={0.25}
-                  />
-                );
-              })}
-            {style === 'grid' &&
-              Array.from({ length: V_GRID + 1 }, (_, i) => {
-                const x = (i / V_GRID) * width;
-                return (
-                  <Line
-                    key={`v${i}`}
-                    x1={x}
-                    y1={0}
-                    x2={x}
-                    y2={CHART_HEIGHT}
-                    stroke={theme.colors.onSurfaceVariant}
-                    strokeWidth={0.5}
-                    opacity={0.25}
-                  />
-                );
-              })}
-
             {style === 'gradient' && <Path d={paths.area} fill="url(#elevFill)" />}
-            <Path d={paths.line} stroke={lineColor} strokeWidth={2} fill="none" />
+            {style === 'gradient' && (
+              <Path d={paths.line} stroke={lineColor} strokeWidth={2.5} fill="none" />
+            )}
+
+            {/* Pace: colour each segment by its speed (red slow → green fast). */}
+            {style === 'pace' &&
+              speedRange &&
+              pts.slice(1).map((p, i) => {
+                const sp = speeds[i + 1] ?? speeds[i];
+                const t =
+                  sp === undefined ? 0.5 : (sp - speedRange.lo) / (speedRange.hi - speedRange.lo);
+                return (
+                  <Line
+                    key={`pace${i}`}
+                    x1={pts[i]!.x}
+                    y1={pts[i]!.y}
+                    x2={p.x}
+                    y2={p.y}
+                    stroke={paceColor(t)}
+                    strokeWidth={3}
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+            {style === 'pace' && !speedRange && (
+              <Path d={paths.line} stroke={lineColor} strokeWidth={2.5} fill="none" />
+            )}
 
             {marker && (
               <>

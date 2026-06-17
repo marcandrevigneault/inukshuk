@@ -12,8 +12,11 @@ const SETTINGS_FILE = 'settings.json';
  */
 export const DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-/** Visual style for the elevation profile chart. '3d' is a future feature. */
-export type ElevationProfileStyle = 'gradient' | 'grid';
+/**
+ * Visual style for the elevation profile chart: 'gradient' = elevation area fill,
+ * 'pace' = line coloured by speed at each point. '3d' is a future feature.
+ */
+export type ElevationProfileStyle = 'gradient' | 'pace';
 
 export interface Settings {
   tileUrl: string;

@@ -13,6 +13,8 @@ export { haversineMeters };
 export { buildElevationProfile } from './elevationProfile';
 export type { ElevationProfile, ElevationSample } from './elevationProfile';
 export { buildImportedTrack } from './importTrack';
+export { interpolateTrackAtDistance } from './interpolate';
+export type { TrackPointAt } from './interpolate';
 
 const DEFAULT_ELEVATION_THRESHOLD_M = 3;
 const DEFAULT_MOVING_SPEED_THRESHOLD_MPS = 0.5;

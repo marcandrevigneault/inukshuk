@@ -136,6 +136,35 @@ describe('parseGpx hand-written input', () => {
     expect(doc.metadata.description).toBe('Nice');
     expect(doc.metadata.time).toBe(Date.parse('2024-03-03T12:00:00Z'));
   });
+
+  it('reads a direct <speed> child of trkpt', () => {
+    const xml = `<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+      <trk><trkseg>
+        <trkpt lat="1" lon="2"><speed>3.5</speed></trkpt>
+        <trkpt lat="1" lon="2"><speed>-1</speed></trkpt>
+        <trkpt lat="1" lon="2"/>
+      </trkseg></trk></gpx>`;
+    const pts = parseGpx(xml).points;
+    expect(pts[0]!.speed).toBe(3.5);
+    expect(pts[1]!.speed).toBeUndefined(); // negative speed is dropped
+    expect(pts[2]!.speed).toBeUndefined();
+  });
+
+  it('reads gpxtpx:speed from a Garmin TrackPointExtension', () => {
+    const xml = `<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+      <trk><trkseg>
+        <trkpt lat="1" lon="2"><extensions>
+          <gpxtpx:TrackPointExtension><gpxtpx:speed>2.25</gpxtpx:speed></gpxtpx:TrackPointExtension>
+        </extensions></trkpt>
+      </trkseg></trk></gpx>`;
+    expect(parseGpx(xml).points[0]!.speed).toBe(2.25);
+  });
+
+  it('round-trips speed via buildGpx', () => {
+    const points: TrackPoint[] = [{ latitude: 1, longitude: 2, time: 0, speed: 4.125 }];
+    const back = parseGpx(buildGpx({ points })).points;
+    expect(back[0]!.speed).toBe(4.125);
+  });
 });
 
 describe('parseGpx error handling', () => {

@@ -27,6 +27,7 @@ import {
   Text,
   TextInput,
   TouchableRipple,
+  useTheme,
 } from 'react-native-paper';
 import { bundleCounts } from '@core/library/bundles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,6 +38,7 @@ import { pickAndImportMaps } from './importMap';
 export function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const theme = useTheme();
 
   const maps = useLibraryStore((s) => s.maps);
   const tracks = useLibraryStore((s) => s.tracks);
@@ -53,6 +55,7 @@ export function LibraryScreen() {
   const toggleBundleTrack = useLibraryStore((s) => s.toggleBundleTrack);
   const activateBundle = useLibraryStore((s) => s.activateBundle);
   const setActiveTrackIds = useMapStore((s) => s.setActiveTrackIds);
+  const setFocusBounds = useMapStore((s) => s.setFocusBounds);
 
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
@@ -104,6 +107,8 @@ export function LibraryScreen() {
 
   const viewTrack = (id: string) => {
     setActiveTrackIds([id]);
+    const bbox = tracks.find((t) => t.id === id)?.stats.bbox;
+    if (bbox) setFocusBounds(bbox); // center the map on the trail, not the user
     router.navigate('/');
   };
 
@@ -152,8 +157,14 @@ export function LibraryScreen() {
     <TouchableRipple onPress={() => toggleSection(key)} accessibilityRole="button">
       <View style={styles.sectionHeaderRow}>
         <View style={styles.sectionHeaderLeft}>
-          <Icon source={collapsed[key] ? 'chevron-right' : 'chevron-down'} size={22} />
-          <List.Subheader>{title}</List.Subheader>
+          <Icon
+            source={collapsed[key] ? 'chevron-right' : 'chevron-down'}
+            size={24}
+            color={theme.colors.onSurface}
+          />
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            {title}
+          </Text>
         </View>
         {action}
       </View>
@@ -424,7 +435,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingRight: 8,
   },
-  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center' },
+  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  sectionTitle: { fontWeight: '700', paddingVertical: 12 },
   overlayLabel: { marginBottom: 2, marginTop: 4 },
   checkboxItem: { paddingVertical: 0, paddingHorizontal: 0 },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },

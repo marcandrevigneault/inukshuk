@@ -1,8 +1,9 @@
 import type { TrackStats } from '@core/models';
 import { formatDistance, formatDuration, formatElevation, formatSpeed } from '@lib/format';
 import { StatTile } from '@ui/components/StatTile';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Surface, Text, useTheme } from 'react-native-paper';
+import { Icon, IconButton, Surface, Text, TouchableRipple, useTheme } from 'react-native-paper';
 
 interface StatsHudProps {
   name: string;
@@ -12,22 +13,62 @@ interface StatsHudProps {
   paused: boolean;
 }
 
-/** The bottom HUD card shown while recording: time, distance, D+, D-, speed. */
+/**
+ * Recording HUD. Defaults to a compact left-aligned pill (rec dot + time +
+ * distance) so it doesn't cover the map; tap the chevron to expand to the full
+ * card (time, distance, speed, D+, D-, max alt) and tap again to collapse.
+ */
 export function StatsHud({ name, stats, elapsedS, paused }: StatsHudProps) {
   const theme = useTheme();
+  const [expanded, setExpanded] = useState(false);
+
+  const statusMark = paused ? (
+    <Text variant="labelSmall" style={{ color: theme.colors.tertiary }}>
+      PAUSED
+    </Text>
+  ) : (
+    <View style={[styles.dot, { backgroundColor: theme.colors.error }]} />
+  );
+
+  if (!expanded) {
+    return (
+      <Surface style={styles.pill} elevation={4}>
+        <TouchableRipple
+          onPress={() => setExpanded(true)}
+          borderless
+          accessibilityRole="button"
+          accessibilityLabel="Expand recording stats"
+          style={styles.pillTouch}
+        >
+          <View style={styles.pillRow}>
+            {statusMark}
+            <Text variant="titleSmall" style={styles.mono}>
+              {formatDuration(elapsedS)}
+            </Text>
+            <Text variant="bodyMedium" style={styles.mono}>
+              {formatDistance(stats.distanceM)}
+            </Text>
+            <Icon source="chevron-up" size={20} />
+          </View>
+        </TouchableRipple>
+      </Surface>
+    );
+  }
+
   return (
     <Surface style={styles.card} elevation={4}>
       <View style={styles.header}>
         <Text variant="titleSmall" numberOfLines={1} style={styles.title}>
           {name}
         </Text>
-        {paused ? (
-          <Text variant="labelSmall" style={{ color: theme.colors.tertiary }}>
-            PAUSED
-          </Text>
-        ) : (
-          <View style={[styles.dot, { backgroundColor: theme.colors.error }]} />
-        )}
+        {statusMark}
+        <IconButton
+          icon="chevron-down"
+          size={20}
+          onPress={() => setExpanded(false)}
+          style={styles.collapseBtn}
+          accessibilityLabel="Collapse recording stats"
+        />
       </View>
       <View style={styles.row}>
         <StatTile label="Time" value={formatDuration(elapsedS)} />
@@ -47,21 +88,45 @@ export function StatsHud({ name, stats, elapsedS, paused }: StatsHudProps) {
 }
 
 const styles = StyleSheet.create({
+  // Compact collapsed pill — small, left-aligned, content-width.
+  pill: {
+    borderRadius: 18,
+    alignSelf: 'flex-start',
+  },
+  pillTouch: {
+    borderRadius: 18,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mono: {
+    fontVariant: ['tabular-nums'],
+    fontWeight: '700',
+  },
+  // Expanded full card — left-aligned, sized to content (not full width).
   card: {
     borderRadius: 20,
     paddingVertical: 12,
     paddingHorizontal: 12,
     gap: 8,
+    alignSelf: 'flex-start',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
+    gap: 8,
+    paddingLeft: 4,
   },
   title: {
-    flex: 1,
+    flexShrink: 1,
     fontWeight: '700',
+  },
+  collapseBtn: {
+    margin: 0,
   },
   dot: {
     width: 10,
@@ -70,6 +135,6 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    gap: 18,
   },
 });

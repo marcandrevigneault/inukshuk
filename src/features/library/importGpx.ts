@@ -4,18 +4,42 @@ import { buildImportedTrack } from '@core/geo/track';
 import * as storage from '@data/storage';
 import * as DocumentPicker from 'expo-document-picker';
 
-export type GpxImportResult =
-  | { kind: 'imported'; track: Track; fileUri: string }
+export interface ImportedTrack {
+  track: Track;
+  fileUri: string;
+}
+
+export type BulkGpxImportResult =
+  | { kind: 'imported'; items: ImportedTrack[]; failed: number }
   | { kind: 'canceled' }
   | { kind: 'error'; message: string };
 
+/** Copy + parse one picked GPX asset into a Track (throws on failure / no points). */
+async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<ImportedTrack> {
+  const id = storage.newId();
+  const fileUri = await storage.importGpx(asset.uri, id);
+  const text = await storage.readFileText(fileUri);
+  const { metadata, points } = parseGpx(text);
+  if (points.length === 0) {
+    storage.deleteFileAt(fileUri);
+    throw new Error('No track points');
+  }
+  const track = buildImportedTrack({
+    id,
+    points,
+    name: metadata.name,
+    fallbackName: asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
+    fallbackTime: Date.now(),
+  });
+  return { track, fileUri };
+}
+
 /**
- * Let the user pick a GPX file, copy it into app storage, parse its track
- * points, and build a finished {@link Track} ready to add to the library.
- * Mirrors `pickAndImportMap`. GPX MIME types vary by source, so we accept
- * broadly and validate by actually parsing.
+ * Let the user pick one or more GPX files, copy them into app storage, parse
+ * their points, and build finished Tracks. GPX MIME types vary by source, so we
+ * accept broadly and validate by parsing. Failed files are counted, not fatal.
  */
-export async function pickAndImportGpx(): Promise<GpxImportResult> {
+export async function pickAndImportGpxFiles(): Promise<BulkGpxImportResult> {
   let picked: DocumentPicker.DocumentPickerResult;
   try {
     picked = await DocumentPicker.getDocumentAsync({
@@ -27,36 +51,22 @@ export async function pickAndImportGpx(): Promise<GpxImportResult> {
         '*/*',
       ],
       copyToCacheDirectory: true,
-      multiple: false,
+      multiple: true,
     });
   } catch (err) {
     return { kind: 'error', message: err instanceof Error ? err.message : 'Picker failed' };
   }
 
   if (picked.canceled || picked.assets.length === 0) return { kind: 'canceled' };
-  const asset = picked.assets[0];
-  if (!asset) return { kind: 'canceled' };
 
-  let fileUri: string | undefined;
-  try {
-    const id = storage.newId();
-    fileUri = await storage.importGpx(asset.uri, id);
-    const text = await storage.readFileText(fileUri);
-    const { metadata, points } = parseGpx(text);
-    if (points.length === 0) {
-      storage.deleteFileAt(fileUri);
-      return { kind: 'error', message: 'No track points found in this GPX file.' };
+  const items: ImportedTrack[] = [];
+  let failed = 0;
+  for (const asset of picked.assets) {
+    try {
+      items.push(await importOne(asset));
+    } catch {
+      failed += 1;
     }
-    const track = buildImportedTrack({
-      id,
-      points,
-      name: metadata.name,
-      fallbackName: asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
-      fallbackTime: Date.now(),
-    });
-    return { kind: 'imported', track, fileUri };
-  } catch (err) {
-    if (fileUri) storage.deleteFileAt(fileUri);
-    return { kind: 'error', message: err instanceof Error ? err.message : 'Import failed' };
   }
+  return { kind: 'imported', items, failed };
 }

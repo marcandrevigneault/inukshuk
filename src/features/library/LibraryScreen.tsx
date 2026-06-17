@@ -31,8 +31,8 @@ import {
 import { bundleCounts } from '@core/library/bundles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ElevationProfile } from './components/ElevationProfile';
-import { pickAndImportGpx } from './importGpx';
-import { pickAndImportMap } from './importMap';
+import { pickAndImportGpxFiles } from './importGpx';
+import { pickAndImportMaps } from './importMap';
 
 export function LibraryScreen() {
   const insets = useSafeAreaInsets();
@@ -68,14 +68,14 @@ export function LibraryScreen() {
 
   const onImport = async () => {
     setBusy(true);
-    const result = await pickAndImportMap();
+    const result = await pickAndImportMaps();
     setBusy(false);
     if (result.kind === 'imported') {
-      addMap(result.doc);
+      // Add in picked order (addMap prepends, so add last-first to preserve it).
+      [...result.docs].reverse().forEach(addMap);
+      const n = result.docs.length;
       setSnack(
-        result.doc.georeferences.length > 0
-          ? `Imported "${result.doc.name}" — ${result.doc.georeferences.length} georeferenced page(s)`
-          : `Imported "${result.doc.name}" — no georeferencing found`,
+        `Imported ${n} map${n === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}`,
       );
     } else if (result.kind === 'error') {
       setSnack(`Import failed: ${result.message}`);
@@ -84,11 +84,14 @@ export function LibraryScreen() {
 
   const onImportGpx = async () => {
     setBusy(true);
-    const result = await pickAndImportGpx();
+    const result = await pickAndImportGpxFiles();
     setBusy(false);
     if (result.kind === 'imported') {
-      addTrack(result.track, result.fileUri);
-      setSnack(`Imported trail "${result.track.name}"`);
+      [...result.items].reverse().forEach(({ track, fileUri }) => addTrack(track, fileUri));
+      const n = result.items.length;
+      setSnack(
+        `Imported ${n} trail${n === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}`,
+      );
     } else if (result.kind === 'error') {
       setSnack(`Import failed: ${result.message}`);
     }

@@ -113,6 +113,12 @@ export function MapScreen() {
     }
   };
 
+  // Tapping the compass snaps the map back to north (bearing 0), keeping the
+  // current center and zoom.
+  const resetNorth = () => {
+    cameraRef.current?.setStop({ bearing: 0, duration: 300 });
+  };
+
   const handleStop = async () => {
     const track = await stop();
     setElapsedS(0);
@@ -182,7 +188,7 @@ export function MapScreen() {
 
       {/* Top-left compass */}
       <View style={[styles.topLeft, { top: insets.top + 8 }]} pointerEvents="box-none">
-        <CompassBadge heading={heading} />
+        <CompassBadge heading={heading} onPress={resetNorth} />
       </View>
 
       {/* Right-side map controls */}

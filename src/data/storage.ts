@@ -44,6 +44,19 @@ export async function importPdf(sourceUri: string, id: string): Promise<string> 
   return dest.uri;
 }
 
+/**
+ * Copy a picked GPX file into app storage under a stable id. Returns the new
+ * file uri. Mirrors {@link importPdf} for imported trails.
+ */
+export async function importGpx(sourceUri: string, id: string): Promise<string> {
+  ensureStorage();
+  const source = new File(sourceUri);
+  const dest = new File(tracksDir(), `${id}.gpx`);
+  if (dest.exists) dest.delete();
+  await source.copy(dest);
+  return dest.uri;
+}
+
 export async function readFileBase64(uri: string): Promise<string> {
   return new File(uri).base64();
 }

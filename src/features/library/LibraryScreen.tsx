@@ -23,6 +23,7 @@ import {
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ElevationProfile } from './components/ElevationProfile';
+import { pickAndImportGpx } from './importGpx';
 import { pickAndImportMap } from './importMap';
 
 export function LibraryScreen() {
@@ -35,6 +36,7 @@ export function LibraryScreen() {
   const removeMap = useLibraryStore((s) => s.removeMap);
   const setActiveMap = useLibraryStore((s) => s.setActiveMap);
   const toggleMapPage = useLibraryStore((s) => s.toggleMapPage);
+  const addTrack = useLibraryStore((s) => s.addTrack);
   const removeTrack = useLibraryStore((s) => s.removeTrack);
   const setFocusedTrack = useMapStore((s) => s.setFocusedTrack);
 
@@ -54,6 +56,18 @@ export function LibraryScreen() {
           ? `Imported "${result.doc.name}" — ${result.doc.georeferences.length} georeferenced page(s)`
           : `Imported "${result.doc.name}" — no georeferencing found`,
       );
+    } else if (result.kind === 'error') {
+      setSnack(`Import failed: ${result.message}`);
+    }
+  };
+
+  const onImportGpx = async () => {
+    setBusy(true);
+    const result = await pickAndImportGpx();
+    setBusy(false);
+    if (result.kind === 'imported') {
+      addTrack(result.track, result.fileUri);
+      setSnack(`Imported trail "${result.track.name}"`);
     } else if (result.kind === 'error') {
       setSnack(`Import failed: ${result.message}`);
     }
@@ -105,6 +119,7 @@ export function LibraryScreen() {
     <View style={styles.fill}>
       <Appbar.Header>
         <Appbar.Content title="Library" />
+        <Appbar.Action icon="map-marker-path" onPress={onImportGpx} disabled={busy} />
         <Appbar.Action icon="file-pdf-box" onPress={onImport} disabled={busy} />
       </Appbar.Header>
 
@@ -164,7 +179,10 @@ export function LibraryScreen() {
         <List.Section>
           <List.Subheader>Recorded trails</List.Subheader>
           {tracks.length === 0 ? (
-            <List.Item title="No trails yet" description="Record one from the Map tab" />
+            <List.Item
+              title="No trails yet"
+              description="Record one from the Map tab, or import a GPX file (route icon above)"
+            />
           ) : (
             tracks.map((t) => (
               <Card key={t.id} style={styles.trackCard} mode="contained">

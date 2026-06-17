@@ -1,4 +1,7 @@
-import type { BoundingBox } from '@core/models';
+import { parseGpx } from '@core/geo/gpx';
+import type { TrackPointAt } from '@core/geo/track';
+import type { BoundingBox, TrackPoint } from '@core/models';
+import * as storage from '@data/storage';
 import { mapColors } from '@ui/theme';
 import {
   Camera,
@@ -16,9 +19,10 @@ import { useSettingsStore } from '@state/settingsStore';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Banner, FAB, Menu, Snackbar } from 'react-native-paper';
+import { Banner, FAB, IconButton, Menu, Snackbar, Surface, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompassBadge } from './components/CompassBadge';
+import { ElevationProfile } from '../library/components/ElevationProfile';
 import { RecordControls } from './components/RecordControls';
 import { StatsHud } from './components/StatsHud';
 import { toLineFeature, toLngLatBounds } from './geojson';
@@ -51,6 +55,39 @@ export function MapScreen() {
   const showTrackOverlays = useMapStore((s) => s.showTrackOverlays);
   const toggleTrackOverlays = useMapStore((s) => s.toggleTrackOverlays);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
+
+  // Trail inspection: tap a trail trace to open its elevation profile; scrubbing
+  // the profile drives a marker along the trace (markerAt).
+  const [inspectId, setInspectId] = useState<string | null>(null);
+  const [inspectPoints, setInspectPoints] = useState<readonly TrackPoint[] | null>(null);
+  const [markerAt, setMarkerAt] = useState<TrackPointAt | null>(null);
+  const inspectTrack = tracks.find((t) => t.id === inspectId) ?? null;
+  const inspectFileUri = inspectTrack?.fileUri ?? null;
+
+  // Enter/leave inspection; clears any previously-loaded points + marker.
+  const inspect = (id: string | null) => {
+    setInspectId(id);
+    setInspectPoints(null);
+    setMarkerAt(null);
+  };
+
+  // Load the inspected trail's GPX points once selected.
+  useEffect(() => {
+    if (!inspectFileUri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const gpx = await storage.readFileText(inspectFileUri);
+        const { points: pts } = parseGpx(gpx);
+        if (!cancelled) setInspectPoints(pts);
+      } catch {
+        if (!cancelled) setInspectPoints(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectFileUri]);
 
   const status = useRecorderStore((s) => s.status);
   const name = useRecorderStore((s) => s.name);
@@ -158,15 +195,46 @@ export function MapScreen() {
 
         {showTrackOverlays &&
           trackOverlays.map((t) => (
-            <GeoJSONSource key={t.id} id={`track-${t.id}`} data={t.feature}>
+            <GeoJSONSource
+              key={t.id}
+              id={`track-${t.id}`}
+              data={t.feature}
+              onPress={() => inspect(t.id)}
+            >
               <Layer
                 id={`track-${t.id}-line`}
                 type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{ 'line-color': '#3B6FB0', 'line-width': 4, 'line-opacity': 0.85 }}
+                paint={{
+                  'line-color': inspectId === t.id ? mapColors.userLocation : '#3B6FB0',
+                  'line-width': inspectId === t.id ? 6 : 4,
+                  'line-opacity': 0.9,
+                }}
               />
             </GeoJSONSource>
           ))}
+
+        {markerAt && (
+          <GeoJSONSource
+            id="inspect-marker"
+            data={{
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [markerAt.longitude, markerAt.latitude] },
+              properties: {},
+            }}
+          >
+            <Layer
+              id="inspect-marker-dot"
+              type="circle"
+              paint={{
+                'circle-radius': 7,
+                'circle-color': mapColors.userLocation,
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffffff',
+              }}
+            />
+          </GeoJSONSource>
+        )}
 
         {trailFeature && (
           <GeoJSONSource id="trail" data={trailFeature}>
@@ -268,6 +336,28 @@ export function MapScreen() {
         </View>
       </View>
 
+      {inspectId && inspectPoints && inspectTrack && (
+        <Surface style={[styles.inspectPanel, { paddingBottom: insets.bottom + 8 }]} elevation={4}>
+          <View style={styles.inspectHeader}>
+            <Text variant="titleSmall" numberOfLines={1} style={styles.inspectTitle}>
+              {inspectTrack.name}
+            </Text>
+            <IconButton
+              icon="close"
+              size={20}
+              onPress={() => inspect(null)}
+              accessibilityLabel="Close trail inspector"
+            />
+          </View>
+          <ElevationProfile
+            points={inspectPoints}
+            ascentM={inspectTrack.stats.ascentM}
+            descentM={inspectTrack.stats.descentM}
+            onScrub={setMarkerAt}
+          />
+        </Surface>
+      )}
+
       <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3000}>
         {snack ?? ''}
       </Snackbar>
@@ -288,4 +378,20 @@ const styles = StyleSheet.create({
   banner: { position: 'absolute', left: 8, right: 8, borderRadius: 12 },
   bottom: { position: 'absolute', left: 12, right: 12, bottom: 0, gap: 14 },
   controlsRow: { alignItems: 'center' },
+  inspectPanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 4,
+  },
+  inspectHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 14,
+  },
+  inspectTitle: { flexShrink: 1, fontWeight: '700' },
 });

@@ -1,6 +1,10 @@
-import { buildElevationProfile } from '@core/geo/track';
+import {
+  buildElevationProfile,
+  interpolateTrackAtDistance,
+  type TrackPointAt,
+} from '@core/geo/track';
 import type { TrackPoint } from '@core/models';
-import { formatDistance, formatElevation } from '@lib/format';
+import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
 import { useSettingsStore } from '@state/settingsStore';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
@@ -15,6 +19,11 @@ interface Props {
   points: readonly TrackPoint[];
   ascentM: number;
   descentM: number;
+  /**
+   * Reports the scrubbed position along the track (or null when released) so a
+   * caller can sync a map marker. Computed from `points` via arc-length interp.
+   */
+  onScrub?: (at: TrackPointAt | null) => void;
 }
 
 /** Build SVG path `d` strings (line + closed area) from screen-space points. */
@@ -36,13 +45,14 @@ function buildPaths(
  * drag to scrub — a marker rides the line and the readout shows elevation,
  * distance and grade at that point.
  */
-export function ElevationProfile({ points, ascentM, descentM }: Props) {
+export function ElevationProfile({ points, ascentM, descentM, onScrub }: Props) {
   const theme = useTheme();
   const profile = useMemo(() => buildElevationProfile(points), [points]);
   const style = useSettingsStore((s) => s.elevationProfileStyle);
   const setStyle = useSettingsStore((s) => s.set);
   const [width, setWidth] = useState(0);
   const [scrub, setScrub] = useState<number | null>(null);
+  const [scrubAt, setScrubAt] = useState<TrackPointAt | null>(null);
 
   const styleSelector = (
     <SegmentedButtons
@@ -85,7 +95,16 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
   const onTouch = (e: GestureResponderEvent) => {
     if (width <= 0) return;
     const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
-    setScrub(Math.round(ratio * lastIdx));
+    const idx = Math.round(ratio * lastIdx);
+    setScrub(idx);
+    const at = interpolateTrackAtDistance(points, samples[idx]!.distanceM);
+    setScrubAt(at);
+    onScrub?.(at);
+  };
+  const endScrub = () => {
+    setScrub(null);
+    setScrubAt(null);
+    onScrub?.(null);
   };
 
   const active = scrub === null ? null : samples[scrub]!;
@@ -124,6 +143,7 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
           <Text variant="bodySmall" style={{ color: theme.colors.primary }}>
             {formatElevation(active.elevationM)} @ {formatDistance(active.distanceM)}
             {grade !== null ? ` · ${grade >= 0 ? '+' : ''}${grade.toFixed(0)}%` : ''}
+            {scrubAt?.speed !== undefined ? ` · ${formatSpeed(scrubAt.speed)}` : ''}
           </Text>
         ) : (
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -138,8 +158,8 @@ export function ElevationProfile({ points, ascentM, descentM }: Props) {
         onStartShouldSetResponder={() => true}
         onResponderGrant={onTouch}
         onResponderMove={onTouch}
-        onResponderRelease={() => setScrub(null)}
-        onResponderTerminate={() => setScrub(null)}
+        onResponderRelease={endScrub}
+        onResponderTerminate={endScrub}
       >
         {width > 0 && (
           <Svg width={width} height={CHART_HEIGHT}>

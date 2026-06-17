@@ -26,6 +26,7 @@ import { buildOsmStyle } from './mapStyle';
 import { useCompass } from './useCompass';
 import { useLocationTracking } from './useLocation';
 import { usePdfOverlays } from './usePdfOverlay';
+import { useTrackOverlays } from './useTrackOverlays';
 
 export function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -39,13 +40,14 @@ export function MapScreen() {
   const heading = useCompass();
 
   const maps = useLibraryStore((s) => s.maps);
+  const tracks = useLibraryStore((s) => s.tracks);
   const { overlays, error: overlayError } = usePdfOverlays(maps);
+  const trackOverlays = useTrackOverlays(tracks);
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
   const showPdfOverlay = useMapStore((s) => s.showPdfOverlay);
   const togglePdfOverlay = useMapStore((s) => s.togglePdfOverlay);
-  const focusedTrack = useMapStore((s) => s.focusedTrack);
 
   const status = useRecorderStore((s) => s.status);
   const name = useRecorderStore((s) => s.name);
@@ -81,10 +83,6 @@ export function MapScreen() {
   }, [status, keepAwake]);
 
   const trailFeature = useMemo(() => toLineFeature(points), [points]);
-  const focusedFeature = useMemo(
-    () => (focusedTrack ? toLineFeature(focusedTrack.points) : null),
-    [focusedTrack],
-  );
 
   // Union bounds of all active overlays, for the "fit to page" control.
   const overlaysBbox = useMemo<BoundingBox | null>(() => {
@@ -155,16 +153,16 @@ export function MapScreen() {
             </ImageSource>
           ))}
 
-        {focusedFeature && (
-          <GeoJSONSource id="focused-track" data={focusedFeature}>
+        {trackOverlays.map((t) => (
+          <GeoJSONSource key={t.id} id={`track-${t.id}`} data={t.feature}>
             <Layer
-              id="focused-track-line"
+              id={`track-${t.id}-line`}
               type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{ 'line-color': '#3B6FB0', 'line-width': 4, 'line-opacity': 0.85 }}
             />
           </GeoJSONSource>
-        )}
+        ))}
 
         {trailFeature && (
           <GeoJSONSource id="trail" data={trailFeature}>

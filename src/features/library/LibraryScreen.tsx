@@ -12,15 +12,20 @@ import {
   ActivityIndicator,
   Appbar,
   Banner,
+  Button,
   Card,
   Checkbox,
+  Dialog,
   Divider,
   FAB,
   IconButton,
   List,
+  Portal,
   Snackbar,
   Text,
+  TextInput,
 } from 'react-native-paper';
+import { bundleCounts } from '@core/library/bundles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ElevationProfile } from './components/ElevationProfile';
 import { pickAndImportGpx } from './importGpx';
@@ -38,12 +43,21 @@ export function LibraryScreen() {
   const toggleMapPage = useLibraryStore((s) => s.toggleMapPage);
   const addTrack = useLibraryStore((s) => s.addTrack);
   const removeTrack = useLibraryStore((s) => s.removeTrack);
-  const setFocusedTrack = useMapStore((s) => s.setFocusedTrack);
+  const bundles = useLibraryStore((s) => s.bundles);
+  const addBundle = useLibraryStore((s) => s.addBundle);
+  const removeBundle = useLibraryStore((s) => s.removeBundle);
+  const toggleBundleMap = useLibraryStore((s) => s.toggleBundleMap);
+  const toggleBundleTrack = useLibraryStore((s) => s.toggleBundleTrack);
+  const activateBundle = useLibraryStore((s) => s.activateBundle);
+  const setActiveTrackIds = useMapStore((s) => s.setActiveTrackIds);
 
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
   const [trackPoints, setTrackPoints] = useState<Record<string, TrackPoint[]>>({});
+  const [editingBundle, setEditingBundle] = useState<string | null>(null);
+  const [newBundleVisible, setNewBundleVisible] = useState(false);
+  const [newBundleName, setNewBundleName] = useState('');
 
   const onImport = async () => {
     setBusy(true);
@@ -78,15 +92,24 @@ export function LibraryScreen() {
     router.navigate('/');
   };
 
-  const viewTrack = async (fileUri: string, id: string) => {
-    try {
-      const gpx = await storage.readFileText(fileUri);
-      const { points } = parseGpx(gpx);
-      setFocusedTrack({ id, points });
-      router.navigate('/');
-    } catch {
-      setSnack('Could not open track');
-    }
+  const viewTrack = (id: string) => {
+    setActiveTrackIds([id]);
+    router.navigate('/');
+  };
+
+  const createBundle = () => {
+    const name = newBundleName.trim();
+    setNewBundleVisible(false);
+    setNewBundleName('');
+    const id = addBundle(name || 'New bundle');
+    setEditingBundle(id); // open it so the user can pick members right away
+  };
+
+  const onActivateBundle = (id: string, name: string) => {
+    const trackIds = activateBundle(id); // turns on member maps' overlays
+    setActiveTrackIds(trackIds); // and member trails
+    setSnack(`Activated "${name}"`);
+    router.navigate('/');
   };
 
   const toggleElevation = async (id: string, fileUri: string) => {
@@ -129,6 +152,83 @@ export function LibraryScreen() {
             Import a georeferenced PDF map to get started, then record trails from the Map tab.
           </Banner>
         )}
+
+        <List.Section>
+          <View style={styles.sectionHeaderRow}>
+            <List.Subheader>Bundles</List.Subheader>
+            <Button compact icon="plus" onPress={() => setNewBundleVisible(true)}>
+              New
+            </Button>
+          </View>
+          {bundles.length === 0 ? (
+            <List.Item
+              title="No bundles yet"
+              description="Group maps & trails to activate a whole set in one tap"
+            />
+          ) : (
+            bundles.map((b) => {
+              const counts = bundleCounts(b, maps, tracks);
+              const editing = editingBundle === b.id;
+              return (
+                <Card key={b.id} style={styles.trackCard} mode="contained">
+                  <Card.Title
+                    title={b.name}
+                    subtitle={`${counts.maps} map(s) · ${counts.tracks} trail(s)`}
+                    left={(p) => <List.Icon {...p} icon="folder-multiple" />}
+                    right={() => (
+                      <View style={styles.rowEnd}>
+                        <IconButton
+                          icon="layers"
+                          onPress={() => onActivateBundle(b.id, b.name)}
+                          disabled={counts.maps + counts.tracks === 0}
+                        />
+                        <IconButton
+                          icon={editing ? 'chevron-up' : 'pencil-outline'}
+                          onPress={() => setEditingBundle(editing ? null : b.id)}
+                        />
+                        <IconButton icon="trash-can-outline" onPress={() => removeBundle(b.id)} />
+                      </View>
+                    )}
+                  />
+                  {editing && (
+                    <Card.Content>
+                      <Text variant="labelMedium" style={styles.overlayLabel}>
+                        Maps in this bundle
+                      </Text>
+                      {maps.length === 0 && <Text variant="bodySmall">No maps imported yet</Text>}
+                      {maps.map((m) => (
+                        <Checkbox.Item
+                          key={m.id}
+                          label={m.name}
+                          position="leading"
+                          status={b.mapIds.includes(m.id) ? 'checked' : 'unchecked'}
+                          onPress={() => toggleBundleMap(b.id, m.id)}
+                          style={styles.checkboxItem}
+                        />
+                      ))}
+                      <Text variant="labelMedium" style={styles.overlayLabel}>
+                        Trails in this bundle
+                      </Text>
+                      {tracks.length === 0 && <Text variant="bodySmall">No trails yet</Text>}
+                      {tracks.map((t) => (
+                        <Checkbox.Item
+                          key={t.id}
+                          label={t.name}
+                          position="leading"
+                          status={b.trackIds.includes(t.id) ? 'checked' : 'unchecked'}
+                          onPress={() => toggleBundleTrack(b.id, t.id)}
+                          style={styles.checkboxItem}
+                        />
+                      ))}
+                    </Card.Content>
+                  )}
+                </Card>
+              );
+            })
+          )}
+        </List.Section>
+
+        <Divider />
 
         <List.Section>
           <List.Subheader>Maps</List.Subheader>
@@ -201,7 +301,7 @@ export function LibraryScreen() {
                     icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
                     onPress={() => toggleElevation(t.id, t.fileUri)}
                   />
-                  <IconButton icon="map-outline" onPress={() => viewTrack(t.fileUri, t.id)} />
+                  <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
                   <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
                   <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
                 </Card.Actions>
@@ -229,6 +329,25 @@ export function LibraryScreen() {
         style={[styles.fab, { bottom: insets.bottom + 16 }]}
       />
 
+      <Portal>
+        <Dialog visible={newBundleVisible} onDismiss={() => setNewBundleVisible(false)}>
+          <Dialog.Title>New bundle</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Bundle name"
+              value={newBundleName}
+              onChangeText={setNewBundleName}
+              autoFocus
+              onSubmitEditing={createBundle}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setNewBundleVisible(false)}>Cancel</Button>
+            <Button onPress={createBundle}>Create</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
       <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3500}>
         {snack ?? ''}
       </Snackbar>
@@ -240,7 +359,13 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   banner: { marginBottom: 4 },
   rowEnd: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  overlayLabel: { opacity: 0.7, marginBottom: 2 },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 8,
+  },
+  overlayLabel: { opacity: 0.7, marginBottom: 2, marginTop: 4 },
   checkboxItem: { paddingVertical: 0, paddingHorizontal: 0 },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
   loader: { paddingVertical: 24 },

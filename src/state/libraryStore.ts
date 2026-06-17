@@ -1,4 +1,5 @@
-import type { GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
+import type { Bundle, GeoReference, MapDocument, Track, TrackSummary } from '@core/models';
+import { bundleMapActivePages, pruneBundles, toggleId } from '@core/library/bundles';
 import * as storage from '@data/storage';
 import { create } from 'zustand';
 
@@ -31,6 +32,7 @@ function migrateDoc(raw: MapDocument & { georeference?: GeoReference | null }): 
 interface LibraryIndex {
   maps: MapDocument[];
   tracks: TrackSummary[];
+  bundles: Bundle[];
   activeMapId: string | null;
 }
 
@@ -45,6 +47,18 @@ interface LibraryState extends LibraryIndex {
   toggleMapPage: (id: string, pageIndex: number) => void;
   addTrack: (track: Track, fileUri: string) => void;
   removeTrack: (id: string) => void;
+  // Bundles — named collections of maps + trails.
+  addBundle: (name: string) => string;
+  renameBundle: (id: string, name: string) => void;
+  removeBundle: (id: string) => void;
+  toggleBundleMap: (bundleId: string, mapId: string) => void;
+  toggleBundleTrack: (bundleId: string, trackId: string) => void;
+  /**
+   * Turn on every overlay in the bundle: sets each member map's activePages to
+   * all its georeferenced pages, and returns the member track ids so the caller
+   * can show them as trail overlays (which live in the map store).
+   */
+  activateBundle: (id: string) => string[];
   activeMap: () => MapDocument | null;
 }
 
@@ -52,6 +66,7 @@ function persist(state: LibraryIndex): void {
   storage.writeIndex({
     maps: state.maps,
     tracks: state.tracks,
+    bundles: state.bundles,
     activeMapId: state.activeMapId,
   } satisfies LibraryIndex);
 }
@@ -59,6 +74,7 @@ function persist(state: LibraryIndex): void {
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   maps: [],
   tracks: [],
+  bundles: [],
   activeMapId: null,
   hydrated: false,
 
@@ -69,6 +85,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       set({
         maps: (index.maps ?? []).map(migrateDoc),
         tracks: index.tracks ?? [],
+        bundles: index.bundles ?? [],
         activeMapId: index.activeMapId ?? null,
         hydrated: true,
       });
@@ -98,6 +115,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const next = {
         ...s,
         maps: s.maps.filter((m) => m.id !== id),
+        bundles: pruneBundles(s.bundles, { mapId: id }),
         activeMapId: s.activeMapId === id ? null : s.activeMapId,
       };
       persist(next);
@@ -149,10 +167,90 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((s) => {
       const t = s.tracks.find((x) => x.id === id);
       if (t) storage.deleteFileAt(t.fileUri);
-      const next = { ...s, tracks: s.tracks.filter((x) => x.id !== id) };
+      const next = {
+        ...s,
+        tracks: s.tracks.filter((x) => x.id !== id),
+        bundles: pruneBundles(s.bundles, { trackId: id }),
+      };
       persist(next);
       return next;
     }),
+
+  addBundle: (name) => {
+    const id = storage.newId();
+    set((s) => {
+      const bundle: Bundle = {
+        id,
+        name: name.trim() || 'Bundle',
+        mapIds: [],
+        trackIds: [],
+        createdAt: Date.now(),
+      };
+      const next = { ...s, bundles: [bundle, ...s.bundles] };
+      persist(next);
+      return next;
+    });
+    return id;
+  },
+
+  renameBundle: (id, name) =>
+    set((s) => {
+      const next = {
+        ...s,
+        bundles: s.bundles.map((b) => (b.id === id ? { ...b, name: name.trim() || b.name } : b)),
+      };
+      persist(next);
+      return next;
+    }),
+
+  removeBundle: (id) =>
+    set((s) => {
+      const next = { ...s, bundles: s.bundles.filter((b) => b.id !== id) };
+      persist(next);
+      return next;
+    }),
+
+  toggleBundleMap: (bundleId, mapId) =>
+    set((s) => {
+      const next = {
+        ...s,
+        bundles: s.bundles.map((b) =>
+          b.id === bundleId ? { ...b, mapIds: toggleId(b.mapIds, mapId) } : b,
+        ),
+      };
+      persist(next);
+      return next;
+    }),
+
+  toggleBundleTrack: (bundleId, trackId) =>
+    set((s) => {
+      const next = {
+        ...s,
+        bundles: s.bundles.map((b) =>
+          b.id === bundleId ? { ...b, trackIds: toggleId(b.trackIds, trackId) } : b,
+        ),
+      };
+      persist(next);
+      return next;
+    }),
+
+  activateBundle: (id) => {
+    const { bundles, maps } = get();
+    const bundle = bundles.find((b) => b.id === id);
+    if (!bundle) return [];
+    const activations = bundleMapActivePages(bundle, maps);
+    set((s) => {
+      const next = {
+        ...s,
+        maps: s.maps.map((m) =>
+          m.id in activations ? { ...m, activePages: activations[m.id]! } : m,
+        ),
+      };
+      persist(next);
+      return next;
+    });
+    return bundle.trackIds.filter((tid) => get().tracks.some((t) => t.id === tid));
+  },
 
   activeMap: () => {
     const { maps, activeMapId } = get();

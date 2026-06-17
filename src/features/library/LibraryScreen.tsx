@@ -30,6 +30,7 @@ import {
   useTheme,
 } from 'react-native-paper';
 import { bundleCounts } from '@core/library/bundles';
+import { folderItemCount, groupByFolder } from '@core/library/folders';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ElevationProfile } from './components/ElevationProfile';
 import { pickAndImportGpxFiles } from './importGpx';
@@ -54,6 +55,11 @@ export function LibraryScreen() {
   const toggleBundleMap = useLibraryStore((s) => s.toggleBundleMap);
   const toggleBundleTrack = useLibraryStore((s) => s.toggleBundleTrack);
   const activateBundle = useLibraryStore((s) => s.activateBundle);
+  const folders = useLibraryStore((s) => s.folders);
+  const addFolder = useLibraryStore((s) => s.addFolder);
+  const renameFolder = useLibraryStore((s) => s.renameFolder);
+  const removeFolder = useLibraryStore((s) => s.removeFolder);
+  const setItemFolder = useLibraryStore((s) => s.setItemFolder);
   const setActiveTrackIds = useMapStore((s) => s.setActiveTrackIds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
 
@@ -64,10 +70,14 @@ export function LibraryScreen() {
   const [editingBundle, setEditingBundle] = useState<string | null>(null);
   const [newBundleVisible, setNewBundleVisible] = useState(false);
   const [newBundleName, setNewBundleName] = useState('');
-  const [collapsed, setCollapsed] = useState({ bundles: false, maps: false, trails: false });
-  const toggleSection = (key: 'bundles' | 'maps' | 'trails') =>
-    setCollapsed((c) => ({ ...c, [key]: !c[key] }));
-  const [bundleMenu, setBundleMenu] = useState<{ kind: 'map' | 'track'; id: string } | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggleSection = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+  const [cardMenu, setCardMenu] = useState<{ kind: 'map' | 'track'; id: string } | null>(null);
+  const [newFolderVisible, setNewFolderVisible] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState<{ id: string; name: string } | null>(null);
+
+  const grouped = groupByFolder(folders, maps, tracks);
 
   const onImport = async () => {
     setBusy(true);
@@ -120,6 +130,18 @@ export function LibraryScreen() {
     setEditingBundle(id); // open it so the user can pick members right away
   };
 
+  const createFolder = () => {
+    const name = newFolderName.trim();
+    setNewFolderVisible(false);
+    setNewFolderName('');
+    addFolder(name || 'New folder');
+  };
+
+  const commitRenameFolder = () => {
+    if (renamingFolder) renameFolder(renamingFolder.id, renamingFolder.name);
+    setRenamingFolder(null);
+  };
+
   const onActivateBundle = (id: string, name: string) => {
     const trackIds = activateBundle(id); // turns on member maps' overlays
     setActiveTrackIds(trackIds); // and member trails
@@ -153,7 +175,7 @@ export function LibraryScreen() {
     }
   };
 
-  const sectionHeader = (key: 'bundles' | 'maps' | 'trails', title: string, action?: ReactNode) => (
+  const sectionHeader = (key: string, title: string, action?: ReactNode) => (
     <TouchableRipple onPress={() => toggleSection(key)} accessibilityRole="button">
       <View style={styles.sectionHeaderRow}>
         <View style={styles.sectionHeaderLeft}>
@@ -171,22 +193,45 @@ export function LibraryScreen() {
     </TouchableRipple>
   );
 
-  // A "add to bundle" menu shown from a map/trail card — toggles this item's
-  // membership in each bundle without leaving the item.
-  const addToBundleMenu = (kind: 'map' | 'track', id: string) => (
+  // A per-card overflow menu that handles both organization concerns: moving the
+  // item into a folder (exclusive) and toggling its membership in bundles. The
+  // menu stays open across taps so several bundles can be picked in one go.
+  const itemMenu = (kind: 'map' | 'track', id: string, folderId?: string) => (
     <Menu
-      visible={bundleMenu?.kind === kind && bundleMenu.id === id}
-      onDismiss={() => setBundleMenu(null)}
+      visible={cardMenu?.kind === kind && cardMenu.id === id}
+      onDismiss={() => setCardMenu(null)}
       anchor={
         <IconButton
-          icon="playlist-plus"
-          onPress={() => setBundleMenu({ kind, id })}
-          accessibilityLabel="Add to bundle"
+          icon="dots-vertical"
+          onPress={() => setCardMenu({ kind, id })}
+          accessibilityLabel="Organize"
         />
       }
     >
+      <Menu.Item disabled title="Move to folder" />
+      {folders.length === 0 ? (
+        <Menu.Item disabled title="No folders yet" />
+      ) : (
+        folders.map((f) => (
+          <Menu.Item
+            key={f.id}
+            leadingIcon={folderId === f.id ? 'folder-check' : 'folder-outline'}
+            title={f.name}
+            onPress={() => setItemFolder(kind, id, folderId === f.id ? null : f.id)}
+          />
+        ))
+      )}
+      {folderId !== undefined && (
+        <Menu.Item
+          leadingIcon="folder-off-outline"
+          title="Remove from folder"
+          onPress={() => setItemFolder(kind, id, null)}
+        />
+      )}
+      <Divider />
+      <Menu.Item disabled title="Add to bundle" />
       {bundles.length === 0 ? (
-        <Menu.Item disabled title="No bundles — create one above" />
+        <Menu.Item disabled title="No bundles yet" />
       ) : (
         bundles.map((b) => {
           const inBundle = kind === 'map' ? b.mapIds.includes(id) : b.trackIds.includes(id);
@@ -205,10 +250,128 @@ export function LibraryScreen() {
     </Menu>
   );
 
+  const renderMapCard = (m: (typeof maps)[number]) => (
+    <Card key={m.id} style={styles.trackCard} mode="contained">
+      <Card.Title
+        title={m.name}
+        subtitle={
+          m.georeferences.length > 0
+            ? `${m.pageCount} page(s) · ${m.georeferences.length} georeferenced`
+            : m.georeferenceWarning
+        }
+        left={(p) => <List.Icon {...p} icon="map" />}
+        right={() => (
+          <View style={styles.rowEnd}>
+            {itemMenu('map', m.id, m.folderId)}
+            <IconButton icon="map-outline" onPress={() => openMap(m.id)} />
+            <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
+          </View>
+        )}
+      />
+      {m.georeferences.length > 0 && (
+        <Card.Content>
+          <Text variant="labelMedium" style={styles.overlayLabel}>
+            Show as overlay
+          </Text>
+          {m.georeferences.map((g) => (
+            <Checkbox.Item
+              key={g.pageIndex}
+              label={`Page ${g.pageIndex + 1}`}
+              position="leading"
+              status={m.activePages.includes(g.pageIndex) ? 'checked' : 'unchecked'}
+              onPress={() => toggleMapPage(m.id, g.pageIndex)}
+              style={styles.checkboxItem}
+            />
+          ))}
+        </Card.Content>
+      )}
+    </Card>
+  );
+
+  const renderTrackCard = (t: (typeof tracks)[number]) => (
+    <Card key={t.id} style={styles.trackCard} mode="contained">
+      <Card.Title
+        title={t.name}
+        subtitle={formatTimestamp(t.startedAt)}
+        left={(p) => <List.Icon {...p} icon="map-marker-path" />}
+      />
+      <Card.Content style={styles.trackStats}>
+        <Text variant="bodyMedium">{formatDistance(t.stats.distanceM)}</Text>
+        <Text variant="bodyMedium">↑ {formatElevation(t.stats.ascentM)}</Text>
+        <Text variant="bodyMedium">↓ {formatElevation(t.stats.descentM)}</Text>
+      </Card.Content>
+      <Card.Actions>
+        <IconButton
+          icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
+          onPress={() => toggleElevation(t.id, t.fileUri)}
+        />
+        <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
+        {itemMenu('track', t.id, t.folderId)}
+        <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
+        <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
+      </Card.Actions>
+      {expandedTrack === t.id &&
+        (trackPoints[t.id] ? (
+          <ElevationProfile
+            points={trackPoints[t.id]!}
+            ascentM={t.stats.ascentM}
+            descentM={t.stats.descentM}
+          />
+        ) : (
+          <ActivityIndicator style={styles.loader} />
+        ))}
+    </Card>
+  );
+
+  // Folder groups (cross-type: each folder shows its maps then its trails).
+  const renderFolderGroups = () =>
+    grouped.groups.map((g) => {
+      const key = `folder:${g.folder.id}`;
+      const count = folderItemCount(g);
+      return (
+        <List.Section key={key}>
+          {sectionHeader(
+            key,
+            `${g.folder.name}${count ? ` (${count})` : ''}`,
+            <View style={styles.rowEnd}>
+              <IconButton
+                icon="pencil-outline"
+                size={20}
+                onPress={() => setRenamingFolder({ id: g.folder.id, name: g.folder.name })}
+                accessibilityLabel="Rename folder"
+              />
+              <IconButton
+                icon="trash-can-outline"
+                size={20}
+                onPress={() => removeFolder(g.folder.id)}
+                accessibilityLabel="Delete folder"
+              />
+            </View>,
+          )}
+          {collapsed[key] ? null : count === 0 ? (
+            <List.Item
+              title="Empty folder"
+              description="Use a map or trail's ⋮ menu to move it here"
+            />
+          ) : (
+            [...g.maps.map(renderMapCard), ...g.tracks.map(renderTrackCard)]
+          )}
+        </List.Section>
+      );
+    });
+
+  const hasFolders = folders.length > 0;
+  const ungroupedCount = grouped.ungroupedMaps.length + grouped.ungroupedTracks.length;
+
   return (
     <View style={styles.fill}>
       <Appbar.Header>
         <Appbar.Content title="Library" />
+        <Appbar.Action
+          icon="folder-plus-outline"
+          onPress={() => setNewFolderVisible(true)}
+          accessibilityLabel="New folder"
+        />
         <Appbar.Action icon="map-marker-path" onPress={onImportGpx} disabled={busy} />
         <Appbar.Action icon="file-pdf-box" onPress={onImport} disabled={busy} />
       </Appbar.Header>
@@ -298,97 +461,47 @@ export function LibraryScreen() {
 
         <Divider />
 
-        <List.Section>
-          {sectionHeader('maps', `Maps${maps.length ? ` (${maps.length})` : ''}`)}
-          {collapsed.maps ? null : maps.length === 0 ? (
-            <List.Item title="No maps yet" description="Tap the PDF icon to import one" />
-          ) : (
-            maps.map((m) => (
-              <Card key={m.id} style={styles.trackCard} mode="contained">
-                <Card.Title
-                  title={m.name}
-                  subtitle={
-                    m.georeferences.length > 0
-                      ? `${m.pageCount} page(s) · ${m.georeferences.length} georeferenced`
-                      : m.georeferenceWarning
-                  }
-                  left={(p) => <List.Icon {...p} icon="map" />}
-                  right={() => (
-                    <View style={styles.rowEnd}>
-                      {addToBundleMenu('map', m.id)}
-                      <IconButton icon="map-outline" onPress={() => openMap(m.id)} />
-                      <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
-                    </View>
-                  )}
-                />
-                {m.georeferences.length > 0 && (
-                  <Card.Content>
-                    <Text variant="labelMedium" style={styles.overlayLabel}>
-                      Show as overlay
-                    </Text>
-                    {m.georeferences.map((g) => (
-                      <Checkbox.Item
-                        key={g.pageIndex}
-                        label={`Page ${g.pageIndex + 1}`}
-                        position="leading"
-                        status={m.activePages.includes(g.pageIndex) ? 'checked' : 'unchecked'}
-                        onPress={() => toggleMapPage(m.id, g.pageIndex)}
-                        style={styles.checkboxItem}
-                      />
-                    ))}
-                  </Card.Content>
+        {renderFolderGroups()}
+
+        {hasFolders
+          ? // With folders: one cross-type "Ungrouped" catch-all for leftovers.
+            ungroupedCount > 0 && (
+              <List.Section>
+                {sectionHeader('ungrouped', `Ungrouped (${ungroupedCount})`)}
+                {collapsed.ungrouped
+                  ? null
+                  : [
+                      ...grouped.ungroupedMaps.map(renderMapCard),
+                      ...grouped.ungroupedTracks.map(renderTrackCard),
+                    ]}
+              </List.Section>
+            )
+          : // No folders yet: keep the familiar Maps + Recorded-trails split.
+            [
+              <List.Section key="maps">
+                {sectionHeader('maps', `Maps${maps.length ? ` (${maps.length})` : ''}`)}
+                {collapsed.maps ? null : maps.length === 0 ? (
+                  <List.Item title="No maps yet" description="Tap the PDF icon to import one" />
+                ) : (
+                  maps.map(renderMapCard)
                 )}
-              </Card>
-            ))
-          )}
-        </List.Section>
-
-        <Divider />
-
-        <List.Section>
-          {sectionHeader('trails', `Recorded trails${tracks.length ? ` (${tracks.length})` : ''}`)}
-          {collapsed.trails ? null : tracks.length === 0 ? (
-            <List.Item
-              title="No trails yet"
-              description="Record one from the Map tab, or import a GPX file (route icon above)"
-            />
-          ) : (
-            tracks.map((t) => (
-              <Card key={t.id} style={styles.trackCard} mode="contained">
-                <Card.Title
-                  title={t.name}
-                  subtitle={formatTimestamp(t.startedAt)}
-                  left={(p) => <List.Icon {...p} icon="map-marker-path" />}
-                />
-                <Card.Content style={styles.trackStats}>
-                  <Text variant="bodyMedium">{formatDistance(t.stats.distanceM)}</Text>
-                  <Text variant="bodyMedium">↑ {formatElevation(t.stats.ascentM)}</Text>
-                  <Text variant="bodyMedium">↓ {formatElevation(t.stats.descentM)}</Text>
-                </Card.Content>
-                <Card.Actions>
-                  <IconButton
-                    icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
-                    onPress={() => toggleElevation(t.id, t.fileUri)}
+              </List.Section>,
+              <Divider key="maps-divider" />,
+              <List.Section key="trails">
+                {sectionHeader(
+                  'trails',
+                  `Recorded trails${tracks.length ? ` (${tracks.length})` : ''}`,
+                )}
+                {collapsed.trails ? null : tracks.length === 0 ? (
+                  <List.Item
+                    title="No trails yet"
+                    description="Record one from the Map tab, or import a GPX file (route icon above)"
                   />
-                  <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
-                  {addToBundleMenu('track', t.id)}
-                  <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
-                  <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
-                </Card.Actions>
-                {expandedTrack === t.id &&
-                  (trackPoints[t.id] ? (
-                    <ElevationProfile
-                      points={trackPoints[t.id]!}
-                      ascentM={t.stats.ascentM}
-                      descentM={t.stats.descentM}
-                    />
-                  ) : (
-                    <ActivityIndicator style={styles.loader} />
-                  ))}
-              </Card>
-            ))
-          )}
-        </List.Section>
+                ) : (
+                  tracks.map(renderTrackCard)
+                )}
+              </List.Section>,
+            ]}
       </ScrollView>
 
       <FAB
@@ -414,6 +527,40 @@ export function LibraryScreen() {
           <Dialog.Actions>
             <Button onPress={() => setNewBundleVisible(false)}>Cancel</Button>
             <Button onPress={createBundle}>Create</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={newFolderVisible} onDismiss={() => setNewFolderVisible(false)}>
+          <Dialog.Title>New folder</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Folder name"
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+              onSubmitEditing={createFolder}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setNewFolderVisible(false)}>Cancel</Button>
+            <Button onPress={createFolder}>Create</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={renamingFolder !== null} onDismiss={() => setRenamingFolder(null)}>
+          <Dialog.Title>Rename folder</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Folder name"
+              value={renamingFolder?.name ?? ''}
+              onChangeText={(name) => setRenamingFolder((f) => (f ? { ...f, name } : f))}
+              autoFocus
+              onSubmitEditing={commitRenameFolder}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setRenamingFolder(null)}>Cancel</Button>
+            <Button onPress={commitRenameFolder}>Rename</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

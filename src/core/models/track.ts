@@ -62,4 +62,6 @@ export interface TrackSummary {
   endedAt?: number;
   stats: TrackStats;
   fileUri: string;
+  /** Id of the {@link Folder} this trail is organized under; undefined = Ungrouped. */
+  folderId?: string;
 }

@@ -12,6 +12,9 @@ const SETTINGS_FILE = 'settings.json';
  */
 export const DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
+/** Visual style for the elevation profile chart. '3d' is a future feature. */
+export type ElevationProfileStyle = 'gradient' | 'grid';
+
 export interface Settings {
   tileUrl: string;
   /** Keep the screen awake while recording a trail. */
@@ -20,6 +23,8 @@ export interface Settings {
   rotateMapWithHeading: boolean;
   /** Minimum metres between recorded GPS fixes (noise/density control). */
   minDisplacementM: number;
+  /** Preferred elevation-profile chart style. */
+  elevationProfileStyle: ElevationProfileStyle;
 }
 
 const DEFAULTS: Settings = {
@@ -27,6 +32,7 @@ const DEFAULTS: Settings = {
   keepAwakeWhileRecording: true,
   rotateMapWithHeading: false,
   minDisplacementM: 5,
+  elevationProfileStyle: 'gradient',
 };
 
 interface SettingsState extends Settings {
@@ -51,8 +57,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   set: (key, value) => {
     set({ [key]: value } as Pick<Settings, typeof key>);
-    const { tileUrl, keepAwakeWhileRecording, rotateMapWithHeading, minDisplacementM } = get();
-    persist({ tileUrl, keepAwakeWhileRecording, rotateMapWithHeading, minDisplacementM });
+    const {
+      tileUrl,
+      keepAwakeWhileRecording,
+      rotateMapWithHeading,
+      minDisplacementM,
+      elevationProfileStyle,
+    } = get();
+    persist({
+      tileUrl,
+      keepAwakeWhileRecording,
+      rotateMapWithHeading,
+      minDisplacementM,
+      elevationProfileStyle,
+    });
   },
 
   reset: () => {

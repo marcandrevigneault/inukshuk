@@ -197,6 +197,7 @@ export function MapScreen() {
         mapStyle={style}
         attribution
         attributionPosition={{ bottom: 8, left: 8 }}
+        touchPitch
       >
         <Camera
           ref={cameraRef}
@@ -302,41 +303,45 @@ export function MapScreen() {
             style={styles.controlFab}
           />
         )}
-        <Menu
-          visible={overlayMenuOpen}
-          onDismiss={() => setOverlayMenuOpen(false)}
-          anchor={
-            <FAB
-              icon="layers"
-              size="small"
-              variant="surface"
-              onPress={() => setOverlayMenuOpen(true)}
-              style={styles.controlFab}
-              accessibilityLabel="Layers"
-            />
-          }
-        >
-          {/* Layer visibility toggles. Extensible: future overlay types add a row here. */}
-          <Menu.Item
-            leadingIcon={terrain3d ? 'checkbox-marked' : 'checkbox-blank-outline'}
-            onPress={toggleTerrain3d}
-            title="3D relief"
-          />
-          {overlays.length > 0 && (
-            <Menu.Item
-              leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
-              onPress={togglePdfOverlay}
-              title={`PDF overlays (${overlays.length})`}
-            />
-          )}
-          {trackOverlays.length > 0 && (
-            <Menu.Item
-              leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
-              onPress={toggleTrackOverlays}
-              title={`Trail overlays (${trackOverlays.length})`}
-            />
-          )}
-        </Menu>
+        <FAB
+          icon="video-3d"
+          size="small"
+          variant={terrain3d ? 'primary' : 'surface'}
+          onPress={toggleTerrain3d}
+          style={styles.controlFab}
+          accessibilityLabel="3D relief"
+        />
+        {(overlays.length > 0 || trackOverlays.length > 0) && (
+          <Menu
+            visible={overlayMenuOpen}
+            onDismiss={() => setOverlayMenuOpen(false)}
+            anchor={
+              <FAB
+                icon="layers"
+                size="small"
+                variant="surface"
+                onPress={() => setOverlayMenuOpen(true)}
+                style={styles.controlFab}
+                accessibilityLabel="Layers"
+              />
+            }
+          >
+            {overlays.length > 0 && (
+              <Menu.Item
+                leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                onPress={togglePdfOverlay}
+                title={`PDF overlays (${overlays.length})`}
+              />
+            )}
+            {trackOverlays.length > 0 && (
+              <Menu.Item
+                leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                onPress={toggleTrackOverlays}
+                title={`Trail overlays (${trackOverlays.length})`}
+              />
+            )}
+          </Menu>
+        )}
       </View>
 
       {permission === 'denied' && (

@@ -30,6 +30,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'com.inukshuk.app',
+    // Explicit versionCode (appVersionSource is "local"): must exceed the highest
+    // already on Play (remote source had reached 33). Bump this each store build.
+    versionCode: 34,
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
       // Cream paper from the logo; the full-bleed foreground covers it, this only

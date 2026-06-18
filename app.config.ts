@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'Inukshuk',
   slug: 'inukshuk',
   owner: 'pythagorasv02',
-  version: '1.0.6',
+  version: '1.0.7',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'inukshuk',
@@ -32,7 +32,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     package: 'com.inukshuk.app',
     // Explicit versionCode (appVersionSource is "local"): must exceed the highest
     // already on Play (remote source had reached 33). Bump this each store build.
-    versionCode: 37,
+    versionCode: 38,
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
       // Cream paper from the logo; the full-bleed foreground covers it, this only

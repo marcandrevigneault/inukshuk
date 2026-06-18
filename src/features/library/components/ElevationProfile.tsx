@@ -6,7 +6,13 @@ import {
 import type { TrackPoint } from '@core/models';
 import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
 import { Fragment, useMemo, useState } from 'react';
-import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
+import {
+  PanResponder,
+  StyleSheet,
+  View,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import Svg, {
   Circle,
@@ -84,14 +90,26 @@ export function ElevationProfile({
   const [scrub, setScrub] = useState<number | null>(null);
   const [scrubAt, setScrubAt] = useState<TrackPointAt | null>(null);
 
-  // Speed at each profile sample (for the 'pace' colouring), + its range.
-  const speeds = useMemo(
-    () =>
-      profile.hasElevation
-        ? profile.samples.map((s) => interpolateTrackAtDistance(points, s.distanceM)?.speed)
-        : [],
-    [points, profile],
-  );
+  // Speed at each profile sample (for the 'pace' colouring), + its range. Uses the
+  // recorded GPS speed when present, else derives it from the time elapsed between
+  // adjacent samples — so timed GPX imports (which rarely carry a speed field)
+  // still get a pace gradient instead of falling back to the plain elevation fill.
+  const speeds = useMemo<(number | undefined)[]>(() => {
+    if (!profile.hasElevation) return [];
+    const ats = profile.samples.map((s) => interpolateTrackAtDistance(points, s.distanceM));
+    return profile.samples.map((s, i) => {
+      const sp = ats[i]?.speed;
+      if (sp !== undefined && Number.isFinite(sp) && sp >= 0) return sp;
+      const prev = ats[i - 1];
+      const cur = ats[i];
+      if (i > 0 && prev?.time !== undefined && cur?.time !== undefined) {
+        const dt = (cur.time - prev.time) / 1000;
+        const dd = s.distanceM - profile.samples[i - 1]!.distanceM;
+        if (dt > 0 && dd >= 0) return dd / dt;
+      }
+      return undefined;
+    });
+  }, [points, profile]);
   const speedRange = useMemo(() => {
     const vals = speeds.filter((v): v is number => v !== undefined && Number.isFinite(v) && v >= 0);
     if (vals.length < 2) return null;
@@ -103,16 +121,6 @@ export function ElevationProfile({
     }
     return hi > lo ? { lo, hi } : null;
   }, [speeds]);
-
-  if (!profile.hasElevation) {
-    return (
-      <View style={styles.container}>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          No elevation data was recorded for this trail.
-        </Text>
-      </View>
-    );
-  }
 
   const { samples, minElevationM, maxElevationM, totalDistanceM } = profile;
   const range = maxElevationM - minElevationM || 1;
@@ -146,20 +154,41 @@ export function ElevationProfile({
   }
 
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
-  const onTouch = (e: GestureResponderEvent) => {
-    if (width <= 0) return;
-    const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
-    const idx = Math.round(ratio * lastIdx);
-    setScrub(idx);
-    const at = interpolateTrackAtDistance(points, samples[idx]!.distanceM);
-    setScrubAt(at);
-    onScrub?.(at);
-  };
-  const endScrub = () => {
-    setScrub(null);
-    setScrubAt(null);
-    onScrub?.(null);
-  };
+
+  // Drive scrubbing through a PanResponder. It claims the gesture on touch and
+  // refuses to yield it (onPanResponderTerminationRequest=false) while blocking
+  // the native responder, so a parent ScrollView can't hijack the touch when the
+  // finger drifts vertically — scrubbing keeps working off-axis. The View holds
+  // the responder for the whole gesture, so rebinding handlers per render is
+  // safe (scrub position is read from locationX, not from gesture-state deltas).
+  const pan = useMemo(() => {
+    const onTouch = (e: GestureResponderEvent) => {
+      if (width <= 0) return;
+      const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
+      const idx = Math.round(ratio * lastIdx);
+      setScrub(idx);
+      const at = interpolateTrackAtDistance(points, samples[idx]!.distanceM);
+      setScrubAt(at);
+      onScrub?.(at);
+    };
+    const endScrub = () => {
+      setScrub(null);
+      setScrubAt(null);
+      onScrub?.(null);
+    };
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: onTouch,
+      onPanResponderMove: onTouch,
+      onPanResponderRelease: endScrub,
+      onPanResponderTerminate: endScrub,
+    });
+  }, [width, lastIdx, samples, points, onScrub]);
 
   const active = scrub === null ? null : samples[scrub]!;
   const marker = scrub === null ? null : pts[scrub];
@@ -175,6 +204,18 @@ export function ElevationProfile({
         })();
 
   const lineColor = theme.colors.primary;
+
+  // Rendered after all hooks so hook order stays stable across trails with and
+  // without elevation data.
+  if (!profile.hasElevation) {
+    return (
+      <View style={styles.container}>
+        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+          No elevation data was recorded for this trail.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -207,17 +248,7 @@ export function ElevationProfile({
       <View
         style={[styles.chart, { backgroundColor: theme.colors.surfaceVariant }]}
         onLayout={onLayout}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onStartShouldSetResponderCapture={() => true}
-        onMoveShouldSetResponderCapture={() => true}
-        // Keep the gesture until the finger lifts — vertical motion must not hand
-        // the touch to the surrounding ScrollView and cancel scrubbing.
-        onResponderTerminationRequest={() => false}
-        onResponderGrant={onTouch}
-        onResponderMove={onTouch}
-        onResponderRelease={endScrub}
-        onResponderTerminate={endScrub}
+        {...pan.panHandlers}
       >
         {width > 0 && (
           <Svg width={width} height={CHART_HEIGHT}>

@@ -14,7 +14,7 @@ import {
   UserLocation,
 } from '@maplibre/maplibre-react-native';
 import { useLibraryStore } from '@state/libraryStore';
-import { useMapStore } from '@state/mapStore';
+import { type MapBasemap, useMapStore } from '@state/mapStore';
 import { useRecorderStore } from '@state/recorderStore';
 import { useSettingsStore } from '@state/settingsStore';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,9 +25,12 @@ import {
   Banner,
   Button,
   Dialog,
+  Divider,
   FAB,
+  Icon,
   IconButton,
   Menu,
+  type MD3Theme,
   Portal,
   Snackbar,
   Surface,
@@ -47,6 +50,23 @@ import { useCompass } from './useCompass';
 import { useLocationTracking } from './useLocation';
 import { usePdfOverlays } from './usePdfOverlay';
 import { useTrackOverlays } from './useTrackOverlays';
+
+/** Base-map choices shown in the layers menu, each with its own coloured icon. */
+const BASEMAPS: {
+  key: MapBasemap;
+  label: string;
+  icon: string;
+  color: (t: MD3Theme) => string;
+}[] = [
+  { key: 'relief', label: 'Relief', icon: 'image-filter-hdr', color: () => '#9C6B3F' },
+  { key: 'map', label: 'Map', icon: 'map', color: (t) => t.colors.primary },
+  {
+    key: 'satellite',
+    label: 'Satellite',
+    icon: 'satellite-variant',
+    color: (t) => t.colors.tertiary,
+  },
+];
 
 export function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -72,7 +92,12 @@ export function MapScreen() {
   const toggleTrackOverlays = useMapStore((s) => s.toggleTrackOverlays);
   const terrain3d = useMapStore((s) => s.terrain3d);
   const toggleTerrain3d = useMapStore((s) => s.toggleTerrain3d);
-  const style = useMemo(() => buildOsmStyle(tileUrl, terrain3d), [tileUrl, terrain3d]);
+  const basemap = useMapStore((s) => s.basemap);
+  const setBasemap = useMapStore((s) => s.setBasemap);
+  const style = useMemo(
+    () => buildOsmStyle(tileUrl, terrain3d, basemap),
+    [tileUrl, terrain3d, basemap],
+  );
   const focusBounds = useMapStore((s) => s.focusBounds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
@@ -372,37 +397,50 @@ export function MapScreen() {
           style={styles.controlFab}
           accessibilityLabel="3D relief"
         />
-        {(overlays.length > 0 || trackOverlays.length > 0) && (
-          <Menu
-            visible={overlayMenuOpen}
-            onDismiss={() => setOverlayMenuOpen(false)}
-            anchor={
-              <FAB
-                icon="layers"
-                size="small"
-                variant="surface"
-                onPress={() => setOverlayMenuOpen(true)}
-                style={styles.controlFab}
-                accessibilityLabel="Layers"
-              />
-            }
-          >
-            {overlays.length > 0 && (
-              <Menu.Item
-                leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                onPress={togglePdfOverlay}
-                title={`PDF overlays (${overlays.length})`}
-              />
-            )}
-            {trackOverlays.length > 0 && (
-              <Menu.Item
-                leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                onPress={toggleTrackOverlays}
-                title={`Trail overlays (${trackOverlays.length})`}
-              />
-            )}
-          </Menu>
-        )}
+        <Menu
+          visible={overlayMenuOpen}
+          onDismiss={() => setOverlayMenuOpen(false)}
+          anchor={
+            <FAB
+              icon="layers"
+              size="small"
+              variant="surface"
+              onPress={() => setOverlayMenuOpen(true)}
+              style={styles.controlFab}
+              accessibilityLabel="Layers"
+            />
+          }
+        >
+          <Menu.Item disabled title="Overlays" />
+          <Menu.Item
+            leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            onPress={overlays.length > 0 ? togglePdfOverlay : undefined}
+            disabled={overlays.length === 0}
+            title={`PDF (${overlays.length})`}
+          />
+          <Menu.Item
+            leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            onPress={trackOverlays.length > 0 ? toggleTrackOverlays : undefined}
+            disabled={trackOverlays.length === 0}
+            title={`Trails (${trackOverlays.length})`}
+          />
+          <Divider />
+          <Menu.Item disabled title="Base map" />
+          {BASEMAPS.map((b) => (
+            <Menu.Item
+              key={b.key}
+              leadingIcon={({ size }) => (
+                <Icon source={b.icon} size={size} color={b.color(theme)} />
+              )}
+              trailingIcon={basemap === b.key ? 'check' : undefined}
+              onPress={() => {
+                setBasemap(b.key);
+                setOverlayMenuOpen(false);
+              }}
+              title={b.label}
+            />
+          ))}
+        </Menu>
       </View>
 
       {permission === 'denied' && (

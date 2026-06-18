@@ -1,6 +1,7 @@
 import { parseGpx } from '@core/geo/gpx';
 import { interpolateTrackAtDistance, type TrackPointAt } from '@core/geo/track';
 import { orderNotes } from '@core/library/notes';
+import { padBbox } from '@core/geo/terrain';
 import type { TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
@@ -28,6 +29,7 @@ import {
   Surface,
   Text,
   TextInput,
+  useTheme,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
@@ -81,6 +83,8 @@ function disposeGroup(g: THREE.Group): void {
  */
 export function Trail3DGLScreen({ trackId }: Props) {
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
+  const hintColor = { color: theme.colors.onSurfaceVariant };
   const router = useRouter();
   const track = useLibraryStore((s) => s.tracks.find((t) => t.id === trackId));
   const addTrackNote = useLibraryStore((s) => s.addTrackNote);
@@ -172,10 +176,16 @@ export function Trail3DGLScreen({ trackId }: Props) {
         setStatus('error');
         return;
       }
-      const hm = await fetchHeightmap(bbox);
+      // Pad the trail's box so the terrain extends past the trace and fills the
+      // viewport, instead of rendering as a tight floating slab.
+      const hm = await fetchHeightmap(padBbox(bbox));
       hmRef.current = hm;
       ptsRef.current = pts;
-      const { group, center, radius, project } = await buildGroupFor(hm, pts, basemapRef.current);
+      const { group, center, trailRadius, project } = await buildGroupFor(
+        hm,
+        pts,
+        basemapRef.current,
+      );
       projectRef.current = project;
 
       const renderer = new Renderer({ gl });
@@ -213,7 +223,9 @@ export function Trail3DGLScreen({ trackId }: Props) {
         100,
       );
       orbit.current.center = center;
-      orbit.current.radius = radius * 2.1;
+      // Frame the trail (not the whole padded slab) so the surrounding terrain
+      // fills the screen with the trace prominent in the middle.
+      orbit.current.radius = clamp(trailRadius * 2.6, 0.8, 9);
       setStatus('ready');
 
       const render = () => {
@@ -355,7 +367,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
             <View style={styles.center} pointerEvents="none">
               <Text>Couldn&apos;t load 3D terrain.</Text>
               {errMsg ? (
-                <Text variant="bodySmall" style={styles.errDetail}>
+                <Text variant="bodySmall" style={[styles.errDetail, hintColor]}>
                   {errMsg}
                 </Text>
               ) : null}
@@ -408,7 +420,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
                   {scrub.speed !== undefined ? ` · ${formatSpeed(scrub.speed)}` : ''}
                 </Text>
               ) : (
-                <Text variant="bodySmall" style={styles.hint}>
+                <Text variant="bodySmall" style={hintColor}>
                   Drag the profile to move the marker on the terrain.
                 </Text>
               )}
@@ -441,7 +453,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
               </Button>
             </View>
             {ordered.length === 0 ? (
-              <Text variant="bodySmall" style={[styles.hint, styles.pad]}>
+              <Text variant="bodySmall" style={[styles.pad, hintColor]}>
                 Scrub the profile to a spot and tap “Add note”.
               </Text>
             ) : (
@@ -455,7 +467,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
                     onPress={() => onScrub(interpolateTrackAtDistance(points, n.distanceM))}
                   >
                     <Text variant="bodyMedium">{n.text}</Text>
-                    <Text variant="bodySmall" style={styles.hint}>
+                    <Text variant="bodySmall" style={hintColor}>
                       {formatDistance(n.distanceM)}
                     </Text>
                     {n.photoUri && (
@@ -569,7 +581,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   loadingText: { opacity: 0.8 },
-  errDetail: { opacity: 0.7, paddingHorizontal: 24, textAlign: 'center' },
+  errDetail: { paddingHorizontal: 24, textAlign: 'center' },
   back: { position: 'absolute', left: 4, margin: 0 },
   summary: {
     position: 'absolute',
@@ -595,7 +607,6 @@ const styles = StyleSheet.create({
   basemapLabel: { marginVertical: 4, marginHorizontal: 10 },
   basemapSpin: { marginLeft: 4 },
   scrubRow: { paddingHorizontal: 16, paddingTop: 10 },
-  hint: { opacity: 0.7 },
   notesHeader: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -57,6 +57,32 @@ export function tileToLngLat(x: number, y: number, z: number): { lng: number; la
   return { lng, lat };
 }
 
+/**
+ * Expand a bounding box outward so a 3D terrain built from it shows context
+ * around the trail (and fills the viewport) instead of a tight floating slab.
+ * Grows each side by `factor` × the box's span, and ensures the box spans at
+ * least `minSpanM` metres in each direction so very short trails still get a
+ * sensible amount of surrounding landscape. Pure.
+ */
+export function padBbox(bbox: BoundingBox, factor = 0.6, minSpanM = 1200): BoundingBox {
+  const midLat = (bbox.minLat + bbox.maxLat) / 2;
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((midLat * Math.PI) / 180) || 111320;
+  const spanLatM = (bbox.maxLat - bbox.minLat) * mPerDegLat;
+  const spanLngM = (bbox.maxLng - bbox.minLng) * mPerDegLng;
+  // Pad by the factor, then top up to the metre minimum if the trail is tiny.
+  const padLatM = Math.max(spanLatM * factor, (minSpanM - spanLatM) / 2, 0);
+  const padLngM = Math.max(spanLngM * factor, (minSpanM - spanLngM) / 2, 0);
+  const dLat = padLatM / mPerDegLat;
+  const dLng = padLngM / mPerDegLng;
+  return {
+    minLat: bbox.minLat - dLat,
+    maxLat: bbox.maxLat + dLat,
+    minLng: bbox.minLng - dLng,
+    maxLng: bbox.maxLng + dLng,
+  };
+}
+
 /** The lng/lat box actually covered by an (inclusive) tile range. */
 export function rangeBbox(range: TileRange): BoundingBox {
   const nw = tileToLngLat(range.minX, range.minY, range.z);

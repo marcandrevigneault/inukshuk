@@ -255,6 +255,16 @@ export function LibraryScreen() {
           );
         })
       )}
+      <Divider />
+      <Menu.Item
+        leadingIcon="trash-can-outline"
+        title={kind === 'map' ? 'Delete map' : 'Delete trail'}
+        onPress={() => {
+          setCardMenu(null);
+          if (kind === 'map') removeMap(id);
+          else removeTrack(id);
+        }}
+      />
     </Menu>
   );
 
@@ -264,31 +274,38 @@ export function LibraryScreen() {
     const expanded = expandedMap === m.id;
     return (
       <Card key={m.id} style={styles.trackCard} mode="contained">
-        <Card.Title
-          title={m.name}
-          titleVariant="titleSmall"
-          subtitle={
-            hasPages
-              ? `${m.pageCount} page(s) · ${active}/${m.georeferences.length} shown`
-              : m.georeferenceWarning
-          }
-          left={(p) => <List.Icon {...p} icon="map" />}
-          right={() => (
-            <View style={styles.rowEnd}>
-              {hasPages && (
-                <IconButton
-                  icon={expanded ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  onPress={() => setExpandedMap(expanded ? null : m.id)}
-                  accessibilityLabel="Overlay pages"
-                />
-              )}
-              <IconButton icon="map-outline" size={22} onPress={() => openMap(m.id)} />
-              {itemMenu('map', m.id, m.folderId)}
-              <IconButton icon="trash-can-outline" size={22} onPress={() => removeMap(m.id)} />
+        <View style={styles.trackRow}>
+          <Pressable
+            style={styles.trackMain}
+            onPress={() => openMap(m.id)}
+            accessibilityLabel={`${m.name} — view on map`}
+          >
+            <Icon source="map" size={22} color={theme.colors.onSurfaceVariant} />
+            <View style={styles.mapTitleCol}>
+              <Text variant="titleSmall" numberOfLines={1}>
+                {m.name}
+              </Text>
+              <Text
+                variant="bodySmall"
+                numberOfLines={1}
+                style={{ color: theme.colors.onSurfaceVariant }}
+              >
+                {hasPages
+                  ? `${m.pageCount} page(s) · ${active}/${m.georeferences.length} shown`
+                  : m.georeferenceWarning}
+              </Text>
             </View>
+          </Pressable>
+          {hasPages && (
+            <IconButton
+              icon={expanded ? 'chevron-up' : 'chevron-down'}
+              size={22}
+              onPress={() => setExpandedMap(expanded ? null : m.id)}
+              accessibilityLabel="Overlay pages"
+            />
           )}
-        />
+          {itemMenu('map', m.id, m.folderId)}
+        </View>
         {hasPages && expanded && (
           <Card.Content>
             <Text variant="labelMedium" style={styles.overlayLabel}>
@@ -402,7 +419,7 @@ export function LibraryScreen() {
               <Text variant="titleSmall" numberOfLines={1}>
                 {t.name}
               </Text>
-              <Text variant="bodySmall" style={styles.hint}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {formatTimestamp(t.startedAt)}
               </Text>
             </View>
@@ -411,7 +428,7 @@ export function LibraryScreen() {
                 {formatDistance(s.distanceM)} · ↑{formatElevation(s.ascentM)} ↓
                 {formatElevation(s.descentM)}
               </Text>
-              <Text variant="labelSmall" style={styles.hint}>
+              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {formatDuration(s.durationS)} · {formatPace(s.avgSpeedMps)}
               </Text>
             </View>
@@ -727,7 +744,7 @@ const styles = StyleSheet.create({
   trackRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 2 },
   trackMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   trackTitleCol: { flex: 1, paddingVertical: 8, paddingRight: 8 },
+  mapTitleCol: { flex: 1, paddingVertical: 8, paddingLeft: 10, paddingRight: 8 },
   trackStatsCol: { alignItems: 'flex-end', paddingRight: 2 },
-  hint: { opacity: 0.7 },
   fab: { position: 'absolute', right: 16, borderRadius: 28 },
 });

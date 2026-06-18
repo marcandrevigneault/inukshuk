@@ -1,4 +1,5 @@
 import type { StyleSpecification } from '@maplibre/maplibre-react-native';
+import type { MapBasemap } from '@state/mapStore';
 
 /**
  * Open, key-free DEM tiles (Mapzen/AWS Terrain Tiles) used for hillshade relief
@@ -7,25 +8,59 @@ import type { StyleSpecification } from '@maplibre/maplibre-react-native';
 const TERRAIN_DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
 /**
- * A minimal MapLibre style that renders OpenStreetMap raster tiles as the base
- * layer. Raster (not vector) keeps us free of any API key or paid tile service.
- * The tile URL is injected from settings so the basemap can be swapped without
- * touching code.
+ * Free, key-free raster base layers. Satellite/relief come from Esri's public
+ * ArcGIS Online tile services (note the `{z}/{y}/{x}` row/col order). `map` uses
+ * the OSM URL injected from settings.
+ */
+function baseSource(
+  basemap: MapBasemap,
+  tileUrl: string,
+): { tiles: string[]; attribution: string } {
+  switch (basemap) {
+    case 'satellite':
+      return {
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        ],
+        attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+      };
+    case 'relief':
+      return {
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+        ],
+        attribution: 'Topographic © Esri, USGS, NOAA',
+      };
+    default:
+      return { tiles: [tileUrl], attribution: '© OpenStreetMap contributors' };
+  }
+}
+
+/**
+ * A minimal MapLibre style that renders a raster base layer (OSM streets,
+ * satellite imagery, or a topographic relief map — see {@link baseSource}).
+ * Raster (not vector) keeps us free of any API key or paid tile service. The OSM
+ * tile URL is injected from settings so it can be swapped without touching code.
  *
  * When `terrain3d` is on, a free Terrarium DEM source is added with a hillshade
  * relief layer and a `terrain` spec so the map can be pitched into a 3D relief
  * view (needs network for the DEM tiles).
  */
-export function buildOsmStyle(tileUrl: string, terrain3d = false): StyleSpecification {
+export function buildOsmStyle(
+  tileUrl: string,
+  terrain3d = false,
+  basemap: MapBasemap = 'map',
+): StyleSpecification {
+  const base = baseSource(basemap, tileUrl);
   const style: StyleSpecification = {
     version: 8,
     sources: {
       osm: {
         type: 'raster',
-        tiles: [tileUrl],
+        tiles: base.tiles,
         tileSize: 256,
         maxzoom: 19,
-        attribution: '© OpenStreetMap contributors',
+        attribution: base.attribution,
       },
     },
     layers: [

@@ -4,7 +4,7 @@ import {
   type TrackPointAt,
 } from '@core/geo/track';
 import type { TrackPoint } from '@core/models';
-import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
+import { formatDistance, formatElevation, formatPace, formatSpeed } from '@lib/format';
 import { Fragment, useMemo, useState } from 'react';
 import {
   PanResponder,
@@ -204,6 +204,13 @@ export function ElevationProfile({
         })();
 
   const lineColor = theme.colors.primary;
+  // Pace at the scrubbed point: the same per-sample speed that colours the
+  // gradient (GPS speed, or derived from time), so the readout shows pace even
+  // for trails without a recorded speed field.
+  const activeSpeed =
+    scrub !== null && speeds[scrub] !== undefined && Number.isFinite(speeds[scrub])
+      ? speeds[scrub]
+      : scrubAt?.speed;
 
   // Rendered after all hooks so hook order stays stable across trails with and
   // without elevation data.
@@ -236,7 +243,9 @@ export function ElevationProfile({
           <Text variant="bodySmall" style={{ color: theme.colors.primary }}>
             {formatElevation(active.elevationM)} @ {formatDistance(active.distanceM)}
             {grade !== null ? ` · ${grade >= 0 ? '+' : ''}${grade.toFixed(0)}%` : ''}
-            {scrubAt?.speed !== undefined ? ` · ${formatSpeed(scrubAt.speed)}` : ''}
+            {activeSpeed !== undefined && activeSpeed > 0
+              ? ` · ${formatPace(activeSpeed)} · ${formatSpeed(activeSpeed)}`
+              : ''}
           </Text>
         ) : (
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>

@@ -16,12 +16,20 @@ const UA = { 'User-Agent': 'Inukshuk/1.0 (offline trail navigation app)' };
 const demUrl = (z: number, x: number, y: number) =>
   `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 
-/** Free, key-free basemaps drapeable on the 3D terrain. */
+/**
+ * Free, key-free basemaps drapeable on the 3D terrain. Both come from Esri's
+ * public ArcGIS Online tile services (note the `{z}/{y}/{x}` row/col order).
+ *
+ * We deliberately do NOT use raw `tile.openstreetmap.org` here: the OSM tile
+ * policy forbids app/bulk fetching and returns "Access Blocked 403" tiles when a
+ * 3D drape stitches many tiles at once. Esri World Street Map is permissive and
+ * matches the satellite/relief sources.
+ */
 export type Basemap = 'map' | 'satellite';
 const basemapUrl = (source: Basemap, z: number, x: number, y: number) =>
   source === 'satellite'
     ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
-    : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+    : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
 
 /** Decode a tile (PNG or JPEG, by magic bytes) to RGBA. */
 function decodeTileRGBA(bytes: Uint8Array): Uint8Array {

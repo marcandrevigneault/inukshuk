@@ -44,6 +44,7 @@ import { ElevationProfile } from '../library/components/ElevationProfile';
 import { RecordControls } from './components/RecordControls';
 import { StatsHud } from './components/StatsHud';
 import { WaypointMarkerPin } from './components/WaypointMarkerPin';
+import { Terrain3DLiveView } from './Terrain3DLiveView';
 import { toLineFeature, toLngLatBounds } from './geojson';
 import { buildOsmStyle } from './mapStyle';
 import { useCompass } from './useCompass';
@@ -76,7 +77,7 @@ export function MapScreen() {
   const tileUrl = useSettingsStore((s) => s.tileUrl);
   const keepAwake = useSettingsStore((s) => s.keepAwakeWhileRecording);
 
-  const { permission } = useLocationTracking();
+  const { permission, location } = useLocationTracking();
   const heading = useCompass();
 
   const maps = useLibraryStore((s) => s.maps);
@@ -94,10 +95,8 @@ export function MapScreen() {
   const toggleTerrain3d = useMapStore((s) => s.toggleTerrain3d);
   const basemap = useMapStore((s) => s.basemap);
   const setBasemap = useMapStore((s) => s.setBasemap);
-  const style = useMemo(
-    () => buildOsmStyle(tileUrl, terrain3d, basemap),
-    [tileUrl, terrain3d, basemap],
-  );
+  // 2D base style; hillshade-3D was replaced by the real 3D terrain surface.
+  const style = useMemo(() => buildOsmStyle(tileUrl, false, basemap), [tileUrl, basemap]);
   const focusBounds = useMapStore((s) => s.focusBounds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
@@ -232,11 +231,6 @@ export function MapScreen() {
     );
   }, [overlays]);
 
-  // Tilt the camera into a relief view when 3D is on, back to flat when off.
-  useEffect(() => {
-    cameraRef.current?.setStop({ pitch: terrain3d ? 65 : 0, duration: 500 });
-  }, [terrain3d]);
-
   const fitActiveMap = () => {
     if (overlaysBbox) {
       setFollowUser(false);
@@ -265,106 +259,110 @@ export function MapScreen() {
 
   return (
     <View style={styles.fill}>
-      <Map
-        style={styles.fill}
-        mapStyle={style}
-        attribution
-        attributionPosition={{ bottom: 8, left: 8 }}
-        touchPitch
-      >
-        <Camera
-          ref={cameraRef}
-          initialViewState={{ zoom: 14 }}
-          trackUserLocation={followUser ? 'default' : undefined}
-          onTrackUserLocationChange={(e) => {
-            if (e.nativeEvent.trackUserLocation === null) setFollowUser(false);
-          }}
-          minZoom={1}
-          maxZoom={20}
-        />
+      {terrain3d ? (
+        <Terrain3DLiveView center={location} basemap={basemap} permission={permission} />
+      ) : (
+        <Map
+          style={styles.fill}
+          mapStyle={style}
+          attribution
+          attributionPosition={{ bottom: 8, left: 8 }}
+          touchPitch
+        >
+          <Camera
+            ref={cameraRef}
+            initialViewState={{ zoom: 14 }}
+            trackUserLocation={followUser ? 'default' : undefined}
+            onTrackUserLocationChange={(e) => {
+              if (e.nativeEvent.trackUserLocation === null) setFollowUser(false);
+            }}
+            minZoom={1}
+            maxZoom={20}
+          />
 
-        {showPdfOverlay &&
-          overlays.map((o) => (
-            <ImageSource key={o.id} id={o.id} url={o.imageUri} coordinates={o.coordinates}>
-              <Layer id={`${o.id}-layer`} type="raster" paint={{ 'raster-opacity': 0.92 }} />
-            </ImageSource>
-          ))}
+          {showPdfOverlay &&
+            overlays.map((o) => (
+              <ImageSource key={o.id} id={o.id} url={o.imageUri} coordinates={o.coordinates}>
+                <Layer id={`${o.id}-layer`} type="raster" paint={{ 'raster-opacity': 0.92 }} />
+              </ImageSource>
+            ))}
 
-        {showTrackOverlays &&
-          trackOverlays.map((t) => (
+          {showTrackOverlays &&
+            trackOverlays.map((t) => (
+              <GeoJSONSource
+                key={t.id}
+                id={`track-${t.id}`}
+                data={t.feature}
+                onPress={() => inspect(inspectId === t.id ? null : t.id)}
+              >
+                <Layer
+                  id={`track-${t.id}-line`}
+                  type="line"
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                  paint={{
+                    'line-color': inspectId === t.id ? mapColors.userLocation : '#3B6FB0',
+                    'line-width': inspectId === t.id ? 6 : 4,
+                    'line-opacity': 0.9,
+                  }}
+                />
+              </GeoJSONSource>
+            ))}
+
+          {markerAt && (
             <GeoJSONSource
-              key={t.id}
-              id={`track-${t.id}`}
-              data={t.feature}
-              onPress={() => inspect(inspectId === t.id ? null : t.id)}
+              id="inspect-marker"
+              data={{
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [markerAt.longitude, markerAt.latitude] },
+                properties: {},
+              }}
             >
               <Layer
-                id={`track-${t.id}-line`}
-                type="line"
-                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                id="inspect-marker-dot"
+                type="circle"
                 paint={{
-                  'line-color': inspectId === t.id ? mapColors.userLocation : '#3B6FB0',
-                  'line-width': inspectId === t.id ? 6 : 4,
-                  'line-opacity': 0.9,
+                  'circle-radius': 7,
+                  'circle-color': mapColors.userLocation,
+                  'circle-stroke-width': 2,
+                  'circle-stroke-color': '#ffffff',
                 }}
               />
             </GeoJSONSource>
-          ))}
+          )}
 
-        {markerAt && (
-          <GeoJSONSource
-            id="inspect-marker"
-            data={{
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [markerAt.longitude, markerAt.latitude] },
-              properties: {},
-            }}
-          >
-            <Layer
-              id="inspect-marker-dot"
-              type="circle"
-              paint={{
-                'circle-radius': 7,
-                'circle-color': mapColors.userLocation,
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#ffffff',
-              }}
-            />
-          </GeoJSONSource>
-        )}
+          {trailFeature && (
+            <GeoJSONSource id="trail" data={trailFeature}>
+              <Layer
+                id="trail-glow"
+                type="line"
+                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                paint={{ 'line-color': mapColors.trailGlow, 'line-width': 11 }}
+              />
+              <Layer
+                id="trail-line"
+                type="line"
+                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                paint={{ 'line-color': mapColors.trail, 'line-width': 5 }}
+              />
+            </GeoJSONSource>
+          )}
 
-        {trailFeature && (
-          <GeoJSONSource id="trail" data={trailFeature}>
-            <Layer
-              id="trail-glow"
-              type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': mapColors.trailGlow, 'line-width': 11 }}
-            />
-            <Layer
-              id="trail-line"
-              type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': mapColors.trail, 'line-width': 5 }}
-            />
-          </GeoJSONSource>
-        )}
+          {status !== 'idle' &&
+            waypoints.map((w) => (
+              <Marker key={w.id} id={w.id} lngLat={[w.longitude, w.latitude]} anchor="bottom">
+                <Pressable
+                  onPress={() => openWaypoint(w.id, w.note ?? '')}
+                  hitSlop={10}
+                  accessibilityLabel={`Edit ${w.label}`}
+                >
+                  <WaypointMarkerPin hasPhoto={!!w.photoUri} />
+                </Pressable>
+              </Marker>
+            ))}
 
-        {status !== 'idle' &&
-          waypoints.map((w) => (
-            <Marker key={w.id} id={w.id} lngLat={[w.longitude, w.latitude]} anchor="bottom">
-              <Pressable
-                onPress={() => openWaypoint(w.id, w.note ?? '')}
-                hitSlop={10}
-                accessibilityLabel={`Edit ${w.label}`}
-              >
-                <WaypointMarkerPin hasPhoto={!!w.photoUri} />
-              </Pressable>
-            </Marker>
-          ))}
-
-        <UserLocation animated accuracy heading />
-      </Map>
+          <UserLocation animated accuracy heading />
+        </Map>
+      )}
 
       {/* Top-left compass */}
       <View style={[styles.topLeft, { top: insets.top + 8 }]} pointerEvents="box-none">

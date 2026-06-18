@@ -36,6 +36,7 @@ export function Trail3DScreen({ trackId }: Props) {
   const cameraRef = useRef<CameraRef>(null);
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
   const [marker, setMarker] = useState<TrackPointAt | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   const fileUri = track?.fileUri;
   useEffect(() => {
@@ -57,17 +58,17 @@ export function Trail3DScreen({ trackId }: Props) {
   const feature = useMemo(() => (points ? toLineFeature(points) : null), [points]);
   const bbox = track?.stats.bbox;
 
-  // Frame the trail, then pitch into 3D.
+  // Once the map is ready, frame the trail then pitch into 3D.
   useEffect(() => {
     const cam = cameraRef.current;
-    if (!cam || !points || points.length === 0 || !bbox) return;
+    if (!cam || !mapLoaded || !bbox) return;
     cam.fitBounds(toLngLatBounds(bbox), {
       duration: 600,
       padding: { top: 160, right: 50, bottom: 320, left: 50 },
     });
     const t = setTimeout(() => cam.setStop({ pitch: 58, duration: 700 }), 700);
     return () => clearTimeout(t);
-  }, [points, bbox]);
+  }, [mapLoaded, bbox]);
 
   if (!track) {
     return (
@@ -90,6 +91,7 @@ export function Trail3DScreen({ trackId }: Props) {
         mapStyle={style}
         attribution
         attributionPosition={{ bottom: 4, left: 4 }}
+        onDidFinishLoadingMap={() => setMapLoaded(true)}
       >
         <Camera ref={cameraRef} minZoom={1} maxZoom={20} />
         {feature && (

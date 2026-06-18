@@ -31,17 +31,47 @@ import {
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
-import { fetchHeightmap } from './dem';
+import { fetchBasemapTexture, fetchHeightmap, type Basemap, type Heightmap } from './dem';
 import { exportTrailPdf } from '../library/exportTrailPdf';
-import { buildTerrain } from './terrainScene';
+import { buildTerrain, type TerrainBuild } from './terrainScene';
 import { ElevationProfile } from '../library/components/ElevationProfile';
 
 interface Props {
   trackId: string;
 }
 
+type BasemapChoice = Basemap | 'relief';
 type Editing = { mode: 'add'; distanceM: number } | { mode: 'edit'; noteId: string };
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** Build a terrain group for a basemap choice, draping its tiles (or relief). */
+async function buildGroupFor(
+  hm: Heightmap,
+  pts: readonly TrackPoint[],
+  bm: BasemapChoice,
+): Promise<TerrainBuild> {
+  let texture;
+  if (bm !== 'relief') {
+    try {
+      texture = await fetchBasemapTexture(hm.range, bm);
+    } catch {
+      texture = undefined; // fall back to hypsometric relief
+    }
+  }
+  return buildTerrain(hm, pts, texture);
+}
+
+function disposeGroup(g: THREE.Group): void {
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.geometry) m.geometry.dispose();
+    const mat = m.material as THREE.MeshStandardMaterial | undefined;
+    if (mat) {
+      mat.map?.dispose();
+      mat.dispose();
+    }
+  });
+}
 
 /**
  * The unified trail view: real 3D terrain (expo-gl + Three.js) on top, then the
@@ -60,6 +90,8 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errMsg, setErrMsg] = useState('');
+  const [basemap, setBasemap] = useState<'map' | 'satellite' | 'relief'>('map');
+  const [switching, setSwitching] = useState(false);
   const [scrub, setScrub] = useState<TrackPointAt | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [draft, setDraft] = useState('');
@@ -72,6 +104,11 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
   const scrubRef = useRef<TrackPointAt | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+  const hmRef = useRef<Awaited<ReturnType<typeof fetchHeightmap>> | null>(null);
+  const ptsRef = useRef<readonly TrackPoint[]>([]);
+  const basemapRef = useRef<'map' | 'satellite' | 'relief'>('map');
 
   const pan = useMemo(
     () =>
@@ -136,18 +173,22 @@ export function Trail3DGLScreen({ trackId }: Props) {
         return;
       }
       const hm = await fetchHeightmap(bbox);
-      const { group, center, radius, project } = buildTerrain(hm, pts);
+      hmRef.current = hm;
+      ptsRef.current = pts;
+      const { group, center, radius, project } = await buildGroupFor(hm, pts, basemapRef.current);
       projectRef.current = project;
 
       const renderer = new Renderer({ gl });
       renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
       renderer.setClearColor(0xcfe0ec, 1);
       const scene = new THREE.Scene();
+      sceneRef.current = scene;
       scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 0.9));
       const sun = new THREE.DirectionalLight(0xffffff, 1.1);
       sun.position.set(1.5, 2.5, 1);
       scene.add(sun);
       scene.add(group);
+      groupRef.current = group;
 
       // A pin that stands above the surface so the highlighted point is obvious.
       const marker = new THREE.Group();
@@ -204,6 +245,28 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const onScrub = (at: TrackPointAt | null) => {
     scrubRef.current = at;
     setScrub(at);
+  };
+
+  const applyBasemap = async (bm: BasemapChoice) => {
+    const scene = sceneRef.current;
+    const hm = hmRef.current;
+    if (bm === basemap || !scene || !hm || switching) return;
+    setBasemap(bm);
+    basemapRef.current = bm;
+    setSwitching(true);
+    try {
+      const built = await buildGroupFor(hm, ptsRef.current, bm);
+      if (groupRef.current) {
+        scene.remove(groupRef.current);
+        disposeGroup(groupRef.current);
+      }
+      scene.add(built.group);
+      groupRef.current = built.group;
+      projectRef.current = built.project;
+    } catch {
+      setSnack('Could not load that basemap');
+    }
+    setSwitching(false);
   };
 
   const pickPhoto = async (fromCamera: boolean) => {
@@ -314,6 +377,25 @@ export function Trail3DGLScreen({ trackId }: Props) {
               <Text variant="labelMedium">{formatPace(s.avgSpeedMps)}</Text>
             </View>
           </Surface>
+
+          {status === 'ready' && (
+            <View style={styles.basemapBar} pointerEvents="box-none">
+              {(['relief', 'map', 'satellite'] as const).map((bm) => (
+                <Button
+                  key={bm}
+                  compact
+                  mode={basemap === bm ? 'contained' : 'contained-tonal'}
+                  onPress={() => applyBasemap(bm)}
+                  disabled={switching}
+                  style={styles.basemapBtn}
+                  labelStyle={styles.basemapLabel}
+                >
+                  {bm === 'relief' ? 'Relief' : bm === 'map' ? 'Map' : 'Satellite'}
+                </Button>
+              ))}
+              {switching && <ActivityIndicator size={18} style={styles.basemapSpin} />}
+            </View>
+          )}
         </View>
 
         {points && (
@@ -499,6 +581,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  basemapBar: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  basemapBtn: { borderRadius: 20 },
+  basemapLabel: { marginVertical: 4, marginHorizontal: 10 },
+  basemapSpin: { marginLeft: 4 },
   scrubRow: { paddingHorizontal: 16, paddingTop: 10 },
   hint: { opacity: 0.7 },
   notesHeader: {

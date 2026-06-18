@@ -124,8 +124,12 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
 
       const renderer = new Renderer({ gl });
       renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
-      renderer.setClearColor(0xcfe0ec, 1);
+      const SKY = 0xcfe0ec;
+      renderer.setClearColor(SKY, 1);
       const scene = new THREE.Scene();
+      // Fade the terrain into the sky at distance so its edges never read as a
+      // floating slab — the mesh appears to extend to a hazy horizon, filling view.
+      scene.fog = new THREE.Fog(SKY, radius * 0.7, radius * 2.0);
       scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 0.9));
       const sun = new THREE.DirectionalLight(0xffffff, 1.1);
       sun.position.set(1.5, 2.5, 1);
@@ -154,7 +158,9 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
         100,
       );
       orbit.current.center = gc;
-      orbit.current.radius = clamp(radius * 1.9, 0.8, 9);
+      // Closer + lower angle so terrain fills the frame down to a fogged horizon.
+      orbit.current.radius = clamp(radius * 1.25, 0.8, 9);
+      orbit.current.phi = 1.12;
       setStatus('ready');
 
       const render = () => {

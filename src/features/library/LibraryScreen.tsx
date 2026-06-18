@@ -72,6 +72,7 @@ export function LibraryScreen() {
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  const [expandedMap, setExpandedMap] = useState<string | null>(null);
   const [trackPoints, setTrackPoints] = useState<Record<string, TrackPoint[]>>({});
   const [editingBundle, setEditingBundle] = useState<string | null>(null);
   const [newBundleVisible, setNewBundleVisible] = useState(false);
@@ -257,43 +258,57 @@ export function LibraryScreen() {
     </Menu>
   );
 
-  const renderMapCard = (m: (typeof maps)[number]) => (
-    <Card key={m.id} style={styles.trackCard} mode="contained">
-      <Card.Title
-        title={m.name}
-        subtitle={
-          m.georeferences.length > 0
-            ? `${m.pageCount} page(s) · ${m.georeferences.length} georeferenced`
-            : m.georeferenceWarning
-        }
-        left={(p) => <List.Icon {...p} icon="map" />}
-        right={() => (
-          <View style={styles.rowEnd}>
-            {itemMenu('map', m.id, m.folderId)}
-            <IconButton icon="map-outline" onPress={() => openMap(m.id)} />
-            <IconButton icon="trash-can-outline" onPress={() => removeMap(m.id)} />
-          </View>
+  const renderMapCard = (m: (typeof maps)[number]) => {
+    const hasPages = m.georeferences.length > 0;
+    const active = m.activePages.length;
+    const expanded = expandedMap === m.id;
+    return (
+      <Card key={m.id} style={styles.trackCard} mode="contained">
+        <Card.Title
+          title={m.name}
+          titleVariant="titleSmall"
+          subtitle={
+            hasPages
+              ? `${m.pageCount} page(s) · ${active}/${m.georeferences.length} shown`
+              : m.georeferenceWarning
+          }
+          left={(p) => <List.Icon {...p} icon="map" />}
+          right={() => (
+            <View style={styles.rowEnd}>
+              {hasPages && (
+                <IconButton
+                  icon={expanded ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  onPress={() => setExpandedMap(expanded ? null : m.id)}
+                  accessibilityLabel="Overlay pages"
+                />
+              )}
+              <IconButton icon="map-outline" size={22} onPress={() => openMap(m.id)} />
+              {itemMenu('map', m.id, m.folderId)}
+              <IconButton icon="trash-can-outline" size={22} onPress={() => removeMap(m.id)} />
+            </View>
+          )}
+        />
+        {hasPages && expanded && (
+          <Card.Content>
+            <Text variant="labelMedium" style={styles.overlayLabel}>
+              Show as overlay
+            </Text>
+            {m.georeferences.map((g) => (
+              <Checkbox.Item
+                key={g.pageIndex}
+                label={`Page ${g.pageIndex + 1}`}
+                position="leading"
+                status={m.activePages.includes(g.pageIndex) ? 'checked' : 'unchecked'}
+                onPress={() => toggleMapPage(m.id, g.pageIndex)}
+                style={styles.checkboxItem}
+              />
+            ))}
+          </Card.Content>
         )}
-      />
-      {m.georeferences.length > 0 && (
-        <Card.Content>
-          <Text variant="labelMedium" style={styles.overlayLabel}>
-            Show as overlay
-          </Text>
-          {m.georeferences.map((g) => (
-            <Checkbox.Item
-              key={g.pageIndex}
-              label={`Page ${g.pageIndex + 1}`}
-              position="leading"
-              status={m.activePages.includes(g.pageIndex) ? 'checked' : 'unchecked'}
-              onPress={() => toggleMapPage(m.id, g.pageIndex)}
-              style={styles.checkboxItem}
-            />
-          ))}
-        </Card.Content>
-      )}
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   // Full overflow menu for a trail: every secondary action plus folder/bundle
   // membership, so the card itself only needs the profile-peek + this button.

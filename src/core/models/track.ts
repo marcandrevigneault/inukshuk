@@ -45,6 +45,8 @@ export interface TrackNote {
   distanceM: number;
   text: string;
   createdAt: number;
+  /** Absolute file:// uri of an attached photo stored in app storage, if any. */
+  photoUri?: string;
 }
 
 export type TrackStatus = 'recording' | 'paused' | 'finished';

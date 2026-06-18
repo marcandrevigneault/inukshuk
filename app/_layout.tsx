@@ -28,7 +28,12 @@ export default function RootLayout() {
         <PaperProvider theme={theme}>
           <PdfRasterizerProvider>
             <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-            <Stack screenOptions={{ headerShown: false }}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: theme.colors.background },
+              }}
+            >
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="trail3d/[id]" />
             </Stack>

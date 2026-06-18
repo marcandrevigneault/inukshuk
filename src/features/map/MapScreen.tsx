@@ -267,6 +267,10 @@ export function MapScreen() {
           mapStyle={style}
           attribution
           attributionPosition={{ bottom: 8, left: 8 }}
+          // We draw our own compass badge (top-left), so hide MapLibre's native
+          // compass — when the map is rotated it otherwise appears in the top-right,
+          // peeking out behind our locate button as a stray dark circle.
+          compass={false}
           touchPitch
         >
           <Camera

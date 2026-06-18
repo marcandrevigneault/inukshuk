@@ -13,6 +13,7 @@ import { nanoid } from 'nanoid/non-secure';
 
 const MAPS_DIR = 'maps';
 const TRACKS_DIR = 'tracks';
+const PHOTOS_DIR = 'photos';
 const INDEX_FILE = 'library.json';
 
 function mapsDir(): Directory {
@@ -21,10 +22,13 @@ function mapsDir(): Directory {
 function tracksDir(): Directory {
   return new Directory(Paths.document, TRACKS_DIR);
 }
+function photosDir(): Directory {
+  return new Directory(Paths.document, PHOTOS_DIR);
+}
 
 /** Create the storage directories if they do not exist. Safe to call repeatedly. */
 export function ensureStorage(): void {
-  for (const dir of [mapsDir(), tracksDir()]) {
+  for (const dir of [mapsDir(), tracksDir(), photosDir()]) {
     if (!dir.exists) dir.create({ intermediates: true });
   }
 }
@@ -59,6 +63,21 @@ export async function importGpx(sourceUri: string, id: string): Promise<string> 
 
 export async function readFileBase64(uri: string): Promise<string> {
   return new File(uri).base64();
+}
+
+/**
+ * Copy a picked image (trail-note photo) into app storage under a stable id,
+ * preserving its extension. Returns the new file uri; the picker's temp file is
+ * left untouched.
+ */
+export async function importPhoto(sourceUri: string, id: string): Promise<string> {
+  ensureStorage();
+  const ext = sourceUri.split('?')[0]?.match(/\.(jpe?g|png|heic|webp)$/i)?.[0] ?? '.jpg';
+  const source = new File(sourceUri);
+  const dest = new File(photosDir(), `${id}${ext.toLowerCase()}`);
+  if (dest.exists) dest.delete();
+  await source.copy(dest);
+  return dest.uri;
 }
 
 function overlaysDir(): Directory {

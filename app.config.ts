@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'Inukshuk',
   slug: 'inukshuk',
   owner: 'pythagorasv02',
-  version: '1.0.2',
+  version: '1.0.3',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'inukshuk',
@@ -73,6 +73,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       '@maplibre/maplibre-react-native',
       {
         // We render OpenStreetMap raster tiles, so no proprietary SDK token.
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Inukshuk lets you attach photos from your library to trail notes.',
+        cameraPermission: 'Inukshuk uses the camera to attach photos to trail notes.',
       },
     ],
     // Raise Gradle heap/metaspace so :expo-updates:kspReleaseKotlin doesn't OOM

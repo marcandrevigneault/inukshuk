@@ -8,7 +8,7 @@ import type {
   TrackSummary,
 } from '@core/models';
 import { bundleMapActivePages, pruneBundles, toggleId } from '@core/library/bundles';
-import { removeNoteById, updateNoteText } from '@core/library/notes';
+import { removeNoteById } from '@core/library/notes';
 import * as storage from '@data/storage';
 import { create } from 'zustand';
 
@@ -59,8 +59,14 @@ interface LibraryState extends LibraryIndex {
   addTrack: (track: Track, fileUri: string) => void;
   removeTrack: (id: string) => void;
   // Trail annotations (GPX editor) — anchored by distance along the trail.
-  addTrackNote: (trackId: string, distanceM: number, text: string) => string;
-  updateTrackNote: (trackId: string, noteId: string, text: string) => void;
+  addTrackNote: (trackId: string, distanceM: number, text: string, photoUri?: string) => string;
+  /** Update a note's text and, when `photoUri` is given, its photo (null = remove). */
+  updateTrackNote: (
+    trackId: string,
+    noteId: string,
+    text: string,
+    photoUri?: string | null,
+  ) => void;
   removeTrackNote: (trackId: string, noteId: string) => void;
   // Bundles — named collections of maps + trails.
   addBundle: (name: string) => string;
@@ -191,7 +197,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   removeTrack: (id) =>
     set((s) => {
       const t = s.tracks.find((x) => x.id === id);
-      if (t) storage.deleteFileAt(t.fileUri);
+      if (t) {
+        storage.deleteFileAt(t.fileUri);
+        t.notes?.forEach((n) => n.photoUri && storage.deleteFileAt(n.photoUri));
+      }
       const next = {
         ...s,
         tracks: s.tracks.filter((x) => x.id !== id),
@@ -201,7 +210,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       return next;
     }),
 
-  addTrackNote: (trackId, distanceM, text) => {
+  addTrackNote: (trackId, distanceM, text, photoUri) => {
     const id = storage.newId();
     set((s) => {
       const note: TrackNote = {
@@ -209,6 +218,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         distanceM: Math.max(0, distanceM),
         text: text.trim(),
         createdAt: Date.now(),
+        ...(photoUri ? { photoUri } : {}),
       };
       const next = {
         ...s,
@@ -222,12 +232,30 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     return id;
   },
 
-  updateTrackNote: (trackId, noteId, text) =>
+  updateTrackNote: (trackId, noteId, text, photoUri) =>
     set((s) => {
+      const old = s.tracks.find((t) => t.id === trackId)?.notes?.find((n) => n.id === noteId);
+      // Replacing or clearing the photo: delete the now-orphaned file.
+      if (old?.photoUri && photoUri !== undefined && photoUri !== old.photoUri) {
+        storage.deleteFileAt(old.photoUri);
+      }
       const next = {
         ...s,
         tracks: s.tracks.map((t) =>
-          t.id === trackId ? { ...t, notes: updateNoteText(t.notes ?? [], noteId, text) } : t,
+          t.id === trackId
+            ? {
+                ...t,
+                notes: (t.notes ?? []).map((n) =>
+                  n.id === noteId
+                    ? {
+                        ...n,
+                        text: text.trim(),
+                        ...(photoUri !== undefined ? { photoUri: photoUri ?? undefined } : {}),
+                      }
+                    : n,
+                ),
+              }
+            : t,
         ),
       };
       persist(next);
@@ -236,6 +264,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   removeTrackNote: (trackId, noteId) =>
     set((s) => {
+      const old = s.tracks.find((t) => t.id === trackId)?.notes?.find((n) => n.id === noteId);
+      if (old?.photoUri) storage.deleteFileAt(old.photoUri);
       const next = {
         ...s,
         tracks: s.tracks.map((t) =>

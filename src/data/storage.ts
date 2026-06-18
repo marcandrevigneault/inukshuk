@@ -106,6 +106,19 @@ export async function readFileBytes(uri: string): Promise<Uint8Array> {
   return new File(uri).bytes();
 }
 
+/**
+ * Download a remote file (e.g. a DEM tile) into the cache and return its raw
+ * bytes. Reliable for binary, unlike RN's `fetch().arrayBuffer()`.
+ */
+export async function downloadBytes(url: string, name: string): Promise<Uint8Array> {
+  const dir = new Directory(Paths.cache, 'dem');
+  if (!dir.exists) dir.create({ intermediates: true });
+  const dest = new File(dir, name);
+  if (dest.exists) dest.delete();
+  await File.downloadFileAsync(url, dest);
+  return dest.bytes();
+}
+
 export async function readFileText(uri: string): Promise<string> {
   return new File(uri).text();
 }

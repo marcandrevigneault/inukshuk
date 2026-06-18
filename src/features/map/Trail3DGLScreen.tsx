@@ -33,6 +33,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
 
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [errMsg, setErrMsg] = useState('');
 
   // Camera orbit + gesture bookkeeping (mutated outside React, read each frame).
   const orbit = useRef({ theta: 0.6, phi: 0.85, radius: 4, center: new THREE.Vector3() });
@@ -129,7 +130,8 @@ export function Trail3DGLScreen({ trackId }: Props) {
         gl.endFrameEXP();
       };
       render();
-    } catch {
+    } catch (e) {
+      setErrMsg(e instanceof Error ? `${e.message}` : String(e));
       setStatus('error');
     }
   };
@@ -160,7 +162,12 @@ export function Trail3DGLScreen({ trackId }: Props) {
       )}
       {status === 'error' && (
         <View style={styles.center} pointerEvents="none">
-          <Text>Couldn&apos;t load terrain (needs a connection).</Text>
+          <Text>Couldn&apos;t load 3D terrain.</Text>
+          {errMsg ? (
+            <Text variant="bodySmall" style={styles.errDetail}>
+              {errMsg}
+            </Text>
+          ) : null}
         </View>
       )}
 
@@ -204,6 +211,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   loadingText: { opacity: 0.8 },
+  errDetail: { opacity: 0.7, paddingHorizontal: 24, textAlign: 'center' },
   back: { position: 'absolute', left: 4, margin: 0 },
   summary: {
     position: 'absolute',

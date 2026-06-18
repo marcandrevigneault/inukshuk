@@ -223,7 +223,7 @@ export function MapScreen() {
               key={t.id}
               id={`track-${t.id}`}
               data={t.feature}
-              onPress={() => inspect(t.id)}
+              onPress={() => inspect(inspectId === t.id ? null : t.id)}
             >
               <Layer
                 id={`track-${t.id}-line`}

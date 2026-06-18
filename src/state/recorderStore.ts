@@ -19,9 +19,17 @@ const EMPTY_STATS: TrackStats = {
 export type RecorderStatus = 'idle' | 'recording' | 'paused';
 
 /** A waypoint dropped live during recording — materialized as a trail note on stop. */
-interface PendingWaypoint {
+export interface PendingWaypoint {
+  id: string;
+  /** Position captured when dropped, so it can be shown as a live map marker. */
+  latitude: number;
+  longitude: number;
   distanceM: number;
+  /** Auto label ("Waypoint N"); used as the note text if no note is typed. */
   label: string;
+  note?: string;
+  /** Absolute file:// uri of an attached photo (already copied into storage). */
+  photoUri?: string;
 }
 
 interface RecorderState {
@@ -34,8 +42,12 @@ interface RecorderState {
 
   start: (name?: string) => void;
   addPoint: (point: TrackPoint) => void;
-  /** Drop a waypoint at the current distance (becomes a numbered note on stop). */
+  /** Drop a waypoint at the current position (becomes a numbered note on stop). */
   addWaypoint: () => number;
+  /** Edit a live waypoint's note text and/or photo (empty photoUri removes it). */
+  updateWaypoint: (id: string, patch: { note?: string; photoUri?: string }) => void;
+  /** Remove a live waypoint and any photo it owns. */
+  removeWaypoint: (id: string) => void;
   pause: () => void;
   resume: () => void;
   /** Finalize: compute authoritative stats, persist GPX, index it, reset. */
@@ -83,12 +95,53 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   },
 
   addWaypoint: () => {
-    const { status, stats, waypoints } = get();
+    const { status, stats, waypoints, points } = get();
     if (status !== 'recording') return 0;
+    const last = points[points.length - 1];
+    if (!last) return 0; // need a fix to anchor the marker
     const n = waypoints.length + 1;
-    set({ waypoints: [...waypoints, { distanceM: stats.distanceM, label: `Waypoint ${n}` }] });
+    set({
+      waypoints: [
+        ...waypoints,
+        {
+          id: storage.newId(),
+          latitude: last.latitude,
+          longitude: last.longitude,
+          distanceM: stats.distanceM,
+          label: `Waypoint ${n}`,
+        },
+      ],
+    });
     return n;
   },
+
+  updateWaypoint: (id, patch) =>
+    set((s) => {
+      const old = s.waypoints.find((w) => w.id === id);
+      // Replacing or clearing a photo: delete the now-orphaned file.
+      if (old?.photoUri && patch.photoUri !== undefined && patch.photoUri !== old.photoUri) {
+        storage.deleteFileAt(old.photoUri);
+      }
+      return {
+        waypoints: s.waypoints.map((w) => {
+          if (w.id !== id) return w;
+          const next: PendingWaypoint = { ...w };
+          if (patch.note !== undefined) next.note = patch.note;
+          if (patch.photoUri !== undefined) {
+            if (patch.photoUri) next.photoUri = patch.photoUri;
+            else delete next.photoUri;
+          }
+          return next;
+        }),
+      };
+    }),
+
+  removeWaypoint: (id) =>
+    set((s) => {
+      const w = s.waypoints.find((x) => x.id === id);
+      if (w?.photoUri) storage.deleteFileAt(w.photoUri);
+      return { waypoints: s.waypoints.filter((x) => x.id !== id) };
+    }),
 
   pause: () => {
     if (get().status === 'recording') set({ status: 'paused' });
@@ -122,11 +175,19 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       const fileUri = storage.writeTrackGpx(track.id, gpx);
       const lib = useLibraryStore.getState();
       lib.addTrack(track, fileUri);
-      // Materialize live waypoints as numbered notes on the saved trail, clamped
-      // to the final track length.
+      // Materialize live waypoints as notes on the saved trail (their typed note,
+      // or the auto label), carrying any photo, clamped to the final track length.
       for (const wp of waypoints) {
-        lib.addTrackNote(track.id, Math.min(wp.distanceM, finalStats.distanceM), wp.label);
+        lib.addTrackNote(
+          track.id,
+          Math.min(wp.distanceM, finalStats.distanceM),
+          wp.note?.trim() || wp.label,
+          wp.photoUri,
+        );
       }
+    } else {
+      // Nothing saved — drop any waypoint photos so they don't orphan.
+      for (const wp of waypoints) if (wp.photoUri) storage.deleteFileAt(wp.photoUri);
     }
 
     set({
@@ -141,6 +202,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   },
 
   discard: () => {
+    for (const wp of get().waypoints) if (wp.photoUri) storage.deleteFileAt(wp.photoUri);
     set({
       status: 'idle',
       name: '',

@@ -1,0 +1,107 @@
+import { sampleGridBilinear } from '@core/geo/terrain';
+import type { TrackPoint } from '@core/models';
+import * as THREE from 'three';
+import type { Heightmap } from './dem';
+
+/** Hypsometric tint: low green → tan → brown → snow, by normalised elevation. */
+function elevationColor(t: number, out: THREE.Color): void {
+  const stops: [number, number, number][] = [
+    [0.28, 0.42, 0.24],
+    [0.55, 0.54, 0.32],
+    [0.46, 0.36, 0.27],
+    [0.92, 0.92, 0.92],
+  ];
+  const x = Math.max(0, Math.min(0.999, t)) * (stops.length - 1);
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = stops[i]!;
+  const b = stops[i + 1]!;
+  out.setRGB(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f);
+}
+
+export interface TerrainBuild {
+  group: THREE.Group;
+  center: THREE.Vector3;
+  radius: number;
+}
+
+/**
+ * Build a real 3D terrain mesh (displaced, hypsometric-coloured, lit) from a DEM
+ * heightmap, with the GPX trace draped on the surface as a tube. The model is
+ * normalised so its larger horizontal side spans 2 world units.
+ */
+export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): TerrainBuild {
+  const { data, grid, bbox, minH, maxH } = hm;
+  const midLat = (bbox.minLat + bbox.maxLat) / 2;
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((midLat * Math.PI) / 180);
+  const spanXm = (bbox.maxLng - bbox.minLng) * mPerDegLng;
+  const spanZm = (bbox.maxLat - bbox.minLat) * mPerDegLat;
+  const scale = 2 / Math.max(spanXm, spanZm, 1);
+  const spanXn = spanXm * scale;
+  const spanZn = spanZm * scale;
+  const vExag = 2.6;
+  const yOf = (h: number) => (h - minH) * scale * vExag;
+  const range = maxH - minH || 1;
+
+  const positions = new Float32Array(grid * grid * 3);
+  const colors = new Float32Array(grid * grid * 3);
+  const color = new THREE.Color();
+  for (let gy = 0; gy < grid; gy++) {
+    for (let gx = 0; gx < grid; gx++) {
+      const idx = gy * grid + gx;
+      const h = data[idx]!;
+      positions[idx * 3] = (gx / (grid - 1) - 0.5) * spanXn;
+      positions[idx * 3 + 1] = yOf(h);
+      positions[idx * 3 + 2] = (gy / (grid - 1) - 0.5) * spanZn;
+      elevationColor((h - minH) / range, color);
+      colors[idx * 3] = color.r;
+      colors[idx * 3 + 1] = color.g;
+      colors[idx * 3 + 2] = color.b;
+    }
+  }
+  const indices: number[] = [];
+  for (let gy = 0; gy < grid - 1; gy++) {
+    for (let gx = 0; gx < grid - 1; gx++) {
+      const a = gy * grid + gx;
+      const b = a + 1;
+      const c = a + grid;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const group = new THREE.Group();
+  group.add(
+    new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })),
+  );
+
+  if (points.length >= 2) {
+    const pts: THREE.Vector3[] = [];
+    for (const p of points) {
+      const fx = (p.longitude - bbox.minLng) / (bbox.maxLng - bbox.minLng || 1);
+      const fyN = (bbox.maxLat - p.latitude) / (bbox.maxLat - bbox.minLat || 1);
+      const h = sampleGridBilinear(data, grid, grid, fx, fyN);
+      pts.push(new THREE.Vector3((fx - 0.5) * spanXn, yOf(h) + 0.02, (fyN - 0.5) * spanZn));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const tube = new THREE.TubeGeometry(curve, Math.min(800, pts.length * 4), 0.009, 6, false);
+    group.add(
+      new THREE.Mesh(
+        tube,
+        new THREE.MeshStandardMaterial({ color: 0x3e7ba0, emissive: 0x0a1622, roughness: 0.4 }),
+      ),
+    );
+  }
+
+  return {
+    group,
+    center: new THREE.Vector3(0, (yOf(maxH) + yOf(minH)) / 2, 0),
+    radius: Math.max(spanXn, spanZn) * 1.15,
+  };
+}

@@ -22,7 +22,14 @@ function elevationColor(t: number, out: THREE.Color): void {
 export interface TerrainBuild {
   group: THREE.Group;
   center: THREE.Vector3;
+  /** Half-extent of the whole terrain slab (normalised units). */
   radius: number;
+  /**
+   * Half-extent of just the GPX trace (normalised units), so the camera can
+   * frame the trail while the padded terrain fills the rest of the view. Falls
+   * back to the slab radius when there is no trace.
+   */
+  trailRadius: number;
   /** Map a lng/lat to its position on the terrain surface (for markers). */
   project: (lng: number, lat: number) => THREE.Vector3;
 }
@@ -117,6 +124,8 @@ export function buildTerrain(
   const group = new THREE.Group();
   group.add(new THREE.Mesh(geo, material));
 
+  const slabRadius = Math.max(spanXn, spanZn) * 1.15;
+  let trailRadius = slabRadius;
   if (points.length >= 2) {
     const pts = points.map((p) => project(p.longitude, p.latitude));
     const curve = new THREE.CatmullRomCurve3(pts);
@@ -127,12 +136,17 @@ export function buildTerrain(
         new THREE.MeshStandardMaterial({ color: 0x3e7ba0, emissive: 0x0a1622, roughness: 0.4 }),
       ),
     );
+    // Half-extent of the trace on the ground plane, for camera framing.
+    let r = 0;
+    for (const p of pts) r = Math.max(r, Math.hypot(p.x, p.z));
+    trailRadius = Math.max(r, slabRadius * 0.12);
   }
 
   return {
     group,
     center: new THREE.Vector3(0, (yOf(maxH) + yOf(minH)) / 2, 0),
-    radius: Math.max(spanXn, spanZn) * 1.15,
+    radius: slabRadius,
+    trailRadius,
     project,
   };
 }

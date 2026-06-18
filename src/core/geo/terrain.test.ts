@@ -2,6 +2,7 @@ import type { BoundingBox } from '@core/models';
 
 import {
   lngLatToTile,
+  padBbox,
   pickTerrainZoom,
   rangeBbox,
   sampleGridBilinear,
@@ -85,5 +86,27 @@ describe('tileRangeForBbox / pickTerrainZoom', () => {
     const c = tileCount(tileRangeForBbox(big, z));
     expect(c.wide).toBeLessThanOrEqual(4);
     expect(c.high).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('padBbox', () => {
+  const box: BoundingBox = { minLat: 45.5, maxLat: 45.51, minLng: -73.6, maxLng: -73.58 };
+
+  it('expands outward, keeping the same centre', () => {
+    const p = padBbox(box, 0.5, 0);
+    expect(p.minLat).toBeLessThan(box.minLat);
+    expect(p.maxLat).toBeGreaterThan(box.maxLat);
+    expect(p.minLng).toBeLessThan(box.minLng);
+    expect(p.maxLng).toBeGreaterThan(box.maxLng);
+    expect((p.minLat + p.maxLat) / 2).toBeCloseTo((box.minLat + box.maxLat) / 2, 6);
+    expect((p.minLng + p.maxLng) / 2).toBeCloseTo((box.minLng + box.maxLng) / 2, 6);
+  });
+
+  it('enforces a minimum span for tiny trails', () => {
+    const tiny: BoundingBox = { minLat: 45.5, maxLat: 45.5001, minLng: -73.6, maxLng: -73.5999 };
+    const p = padBbox(tiny, 0.6, 2000);
+    const mPerDegLat = 111320;
+    const spanLatM = (p.maxLat - p.minLat) * mPerDegLat;
+    expect(spanLatM).toBeGreaterThanOrEqual(2000 - 1);
   });
 });

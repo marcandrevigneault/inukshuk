@@ -255,6 +255,10 @@ export function Trail3DGLScreen({ trackId }: Props) {
   };
 
   const onScrub = (at: TrackPointAt | null) => {
+    // Keep the last scrubbed point selected when the finger lifts (the profile
+    // reports null on release). Otherwise the selection clears instantly and the
+    // "Add note" button — gated on a selected point — can never be tapped.
+    if (!at) return;
     scrubRef.current = at;
     setScrub(at);
   };

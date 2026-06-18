@@ -170,6 +170,11 @@ export function TrackEditScreen({ trackId }: Props) {
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={track.name} subtitle="Edit notes" />
         <Appbar.Action
+          icon="video-3d"
+          onPress={() => router.navigate(`/trail3d/${trackId}`)}
+          accessibilityLabel="View in 3D"
+        />
+        <Appbar.Action
           icon="file-pdf-box"
           onPress={onExportPdf}
           disabled={points == null || exporting}

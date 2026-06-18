@@ -319,6 +319,14 @@ export function LibraryScreen() {
         }}
       />
       <Menu.Item
+        leadingIcon="video-3d"
+        title="View in 3D"
+        onPress={() => {
+          setCardMenu(null);
+          router.navigate(`/trail3d/${t.id}`);
+        }}
+      />
+      <Menu.Item
         leadingIcon="note-edit-outline"
         title="Notes & PDF export"
         onPress={() => {

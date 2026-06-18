@@ -1,5 +1,5 @@
 import { padBbox } from '@core/geo/terrain';
-import type { BoundingBox, LatLng } from '@core/models';
+import type { BoundingBox, LatLng, LngLat, TrackPoint } from '@core/models';
 import type { MapBasemap } from '@state/mapStore';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
@@ -17,6 +17,12 @@ interface Props {
   basemap: MapBasemap;
   /** Whether foreground location permission was granted. */
   permission: 'undetermined' | 'granted' | 'denied';
+  /** Active saved-trail polylines to drape on the terrain (lng/lat). */
+  trails: readonly (readonly LngLat[])[];
+  /** Live recording trace points (empty when not recording). */
+  recordPoints: readonly TrackPoint[];
+  /** Live dropped waypoints to pin on the terrain. */
+  waypoints: readonly { latitude: number; longitude: number }[];
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -73,6 +79,73 @@ function disposeGroup(g: THREE.Group): void {
   });
 }
 
+type Project = (lng: number, lat: number) => THREE.Vector3;
+const inBox = (b: BoundingBox, lng: number, lat: number) =>
+  lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
+
+/**
+ * Add a draped polyline (a trail or recording trace) as tube segments, split at
+ * the box edges so points outside the loaded terrain don't snap to the border.
+ */
+function addPolyline(
+  group: THREE.Group,
+  coords: readonly LngLat[],
+  project: Project,
+  bbox: BoundingBox,
+  color: number,
+  radius: number,
+): void {
+  let run: THREE.Vector3[] = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      const tube = new THREE.TubeGeometry(
+        new THREE.CatmullRomCurve3(run),
+        Math.min(600, run.length * 4),
+        radius,
+        5,
+        false,
+      );
+      group.add(
+        new THREE.Mesh(
+          tube,
+          new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.3,
+            roughness: 0.5,
+          }),
+        ),
+      );
+    }
+    run = [];
+  };
+  for (const [lng, lat] of coords) {
+    if (inBox(bbox, lng, lat)) run.push(project(lng, lat));
+    else flush();
+  }
+  flush();
+}
+
+/** A small inukshuk-charcoal pin (head on a pole) for a waypoint. */
+function waypointPin(): THREE.Group {
+  const g = new THREE.Group();
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0x2d3740, emissive: 0x0a0f14 }),
+  );
+  head.position.y = 0.1;
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.005, 0.005, 0.1, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333 }),
+  );
+  pole.position.y = 0.05;
+  g.add(head, pole);
+  return g;
+}
+
+const TRAIL_COLOR = 0x3e7ba0; // saved trails — slate blue (the logo's river)
+const REC_COLOR = 0xd76b27; // live recording trace — warm orange
+
 /**
  * Real 3D on the main map. Builds an extruded terrain mesh (expo-gl + Three.js)
  * for a box around the device's location, draped with the active basemap (or
@@ -81,7 +154,14 @@ function disposeGroup(g: THREE.Group): void {
  * re-anchors around them as they move (M3) — fetching only new tiles, since the
  * tile cache serves the overlap. Tap the locate button to toggle follow.
  */
-export function Terrain3DLiveView({ center, basemap, permission }: Props) {
+export function Terrain3DLiveView({
+  center,
+  basemap,
+  permission,
+  trails,
+  recordPoints,
+  waypoints,
+}: Props) {
   const theme = useTheme();
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [follow, setFollow] = useState(true);
@@ -110,6 +190,56 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const reanchoringRef = useRef(false);
+  const overlaysRef = useRef<THREE.Group | null>(null);
+  const trailsRef = useRef(trails);
+  const recordPointsRef = useRef(recordPoints);
+  const waypointsRef = useRef(waypoints);
+
+  // Rebuild the draped overlays (saved trails, live trace, waypoint pins) against
+  // the current projection. Called on first build, on re-anchor (the projection
+  // changes), and whenever the overlay data changes. Reads refs, so it stays
+  // current without being recreated.
+  const rebuildOverlays = () => {
+    const scene = sceneRef.current;
+    const project = projectRef.current;
+    const bbox = bboxRef.current;
+    if (!scene || !project || !bbox) return;
+    const old = overlaysRef.current;
+    if (old) {
+      scene.remove(old);
+      disposeGroup(old);
+    }
+    const g = new THREE.Group();
+    for (const coords of trailsRef.current)
+      addPolyline(g, coords, project, bbox, TRAIL_COLOR, 0.008);
+    const rec = recordPointsRef.current;
+    if (rec.length >= 2) {
+      addPolyline(
+        g,
+        rec.map((p) => [p.longitude, p.latitude] as LngLat),
+        project,
+        bbox,
+        REC_COLOR,
+        0.011,
+      );
+    }
+    for (const w of waypointsRef.current) {
+      if (!inBox(bbox, w.longitude, w.latitude)) continue;
+      const pin = waypointPin();
+      pin.position.copy(project(w.longitude, w.latitude));
+      g.add(pin);
+    }
+    scene.add(g);
+    overlaysRef.current = g;
+  };
+
+  // Keep the data refs fresh and re-drape whenever overlays change.
+  useEffect(() => {
+    trailsRef.current = trails;
+    recordPointsRef.current = recordPoints;
+    waypointsRef.current = waypoints;
+    rebuildOverlays(); // reads refs; a no-op until the scene exists
+  }, [trails, recordPoints, waypoints]);
 
   const pan = useMemo(
     () =>
@@ -202,6 +332,7 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
       pole.position.y = 0.065;
       marker.add(head, pole);
       scene.add(marker);
+      rebuildOverlays(); // drape trails / recording / waypoints on the surface
 
       const camera = new THREE.PerspectiveCamera(
         55,
@@ -281,6 +412,7 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
         projectRef.current = built.project;
         bboxRef.current = built.bbox;
         anchorRef.current = center;
+        rebuildOverlays(); // re-drape against the new projection
       } catch {
         /* keep the existing terrain on failure */
       } finally {

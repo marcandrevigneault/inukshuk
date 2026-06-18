@@ -13,7 +13,7 @@ import { useMapStore } from '@state/mapStore';
 import * as Sharing from 'expo-sharing';
 import { useRouter } from 'expo-router';
 import { type ReactNode, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Appbar,
@@ -394,23 +394,29 @@ export function LibraryScreen() {
     return (
       <Card key={t.id} style={styles.trackCard} mode="contained">
         <View style={styles.trackRow}>
-          <View style={styles.trackTitleCol}>
-            <Text variant="titleSmall" numberOfLines={1}>
-              {t.name}
-            </Text>
-            <Text variant="bodySmall" style={styles.hint}>
-              {formatTimestamp(t.startedAt)}
-            </Text>
-          </View>
-          <View style={styles.trackStatsCol}>
-            <Text variant="labelSmall">
-              {formatDistance(s.distanceM)} · ↑{formatElevation(s.ascentM)} ↓
-              {formatElevation(s.descentM)}
-            </Text>
-            <Text variant="labelSmall" style={styles.hint}>
-              {formatDuration(s.durationS)} · {formatPace(s.avgSpeedMps)}
-            </Text>
-          </View>
+          <Pressable
+            style={styles.trackMain}
+            onPress={() => router.navigate(`/trail3d/${t.id}`)}
+            accessibilityLabel={`${t.name} — open 3D view`}
+          >
+            <View style={styles.trackTitleCol}>
+              <Text variant="titleSmall" numberOfLines={1}>
+                {t.name}
+              </Text>
+              <Text variant="bodySmall" style={styles.hint}>
+                {formatTimestamp(t.startedAt)}
+              </Text>
+            </View>
+            <View style={styles.trackStatsCol}>
+              <Text variant="labelSmall">
+                {formatDistance(s.distanceM)} · ↑{formatElevation(s.ascentM)} ↓
+                {formatElevation(s.descentM)}
+              </Text>
+              <Text variant="labelSmall" style={styles.hint}>
+                {formatDuration(s.durationS)} · {formatPace(s.avgSpeedMps)}
+              </Text>
+            </View>
+          </Pressable>
           <IconButton
             icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
             size={22}
@@ -720,6 +726,7 @@ const styles = StyleSheet.create({
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
   loader: { paddingVertical: 24 },
   trackRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 2 },
+  trackMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   trackTitleCol: { flex: 1, paddingVertical: 8, paddingRight: 8 },
   trackStatsCol: { alignItems: 'flex-end', paddingRight: 2 },
   hint: { opacity: 0.7 },

@@ -12,18 +12,24 @@ const { withGradleProperties } = require('@expo/config-plugins');
  * during prebuild — this survives the managed prebuild that regenerates android/.
  */
 const JVM_ARGS =
-  '-Xmx4096m -XX:MaxMetaspaceSize=2048m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
+  '-Xmx3072m -XX:MaxMetaspaceSize=2048m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8';
 
-const KEY = 'org.gradle.jvmargs';
+// TEMP (local low-RAM build): one JVM so the OS doesn't OOM-kill forked workers.
+const PROPS = {
+  'org.gradle.jvmargs': JVM_ARGS,
+  'org.gradle.daemon': 'false',
+  'org.gradle.parallel': 'false',
+  'org.gradle.workers.max': '1',
+  'kotlin.compiler.execution.strategy': 'in-process',
+};
 
 /** @type {import('@expo/config-plugins').ConfigPlugin} */
 module.exports = function withGradleMemory(config) {
   return withGradleProperties(config, (cfg) => {
-    const existing = cfg.modResults.find((p) => p.type === 'property' && p.key === KEY);
-    if (existing) {
-      existing.value = JVM_ARGS;
-    } else {
-      cfg.modResults.push({ type: 'property', key: KEY, value: JVM_ARGS });
+    for (const [key, value] of Object.entries(PROPS)) {
+      const existing = cfg.modResults.find((p) => p.type === 'property' && p.key === key);
+      if (existing) existing.value = value;
+      else cfg.modResults.push({ type: 'property', key, value });
     }
     return cfg;
   });

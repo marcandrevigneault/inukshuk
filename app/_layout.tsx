@@ -30,7 +30,6 @@ export default function RootLayout() {
             <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="trail/[id]" />
               <Stack.Screen name="trail3d/[id]" />
             </Stack>
           </PdfRasterizerProvider>

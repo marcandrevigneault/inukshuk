@@ -1,17 +1,38 @@
 import { parseGpx } from '@core/geo/gpx';
+import { interpolateTrackAtDistance, type TrackPointAt } from '@core/geo/track';
+import { orderNotes } from '@core/library/notes';
 import type { TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
-import { formatDistance, formatDuration, formatElevation, formatPace } from '@lib/format';
+import {
+  formatDistance,
+  formatDuration,
+  formatElevation,
+  formatPace,
+  formatSpeed,
+} from '@lib/format';
 import { useLibraryStore } from '@state/libraryStore';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
-import { PanResponder, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Appbar, Surface, Text } from 'react-native-paper';
+import { Image, PanResponder, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Appbar,
+  Button,
+  Dialog,
+  IconButton,
+  Portal,
+  Snackbar,
+  Surface,
+  Text,
+  TextInput,
+} from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as THREE from 'three';
 import { fetchHeightmap } from './dem';
+import { exportTrailPdf } from '../library/exportTrailPdf';
 import { buildTerrain } from './terrainScene';
 import { ElevationProfile } from '../library/components/ElevationProfile';
 
@@ -19,67 +40,88 @@ interface Props {
   trackId: string;
 }
 
+type Editing = { mode: 'add'; distanceM: number } | { mode: 'edit'; noteId: string };
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /**
- * Real 3D trail view: a Three.js terrain mesh built from free Terrarium DEM
- * tiles (drawn in an expo-gl GLView), with the GPX trace draped on the surface.
- * One finger orbits, two fingers pinch to zoom; the elevation profile docks below.
+ * The unified trail view: real 3D terrain (expo-gl + Three.js) on top, then the
+ * elevation profile and notes/photos + PDF export below in one scroll. Scrubbing
+ * the profile drives a marker on the 3D terrain. One finger orbits; two fingers
+ * pinch to zoom and drag to tilt/rotate.
  */
 export function Trail3DGLScreen({ trackId }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const track = useLibraryStore((s) => s.tracks.find((t) => t.id === trackId));
+  const addTrackNote = useLibraryStore((s) => s.addTrackNote);
+  const updateTrackNote = useLibraryStore((s) => s.updateTrackNote);
+  const removeTrackNote = useLibraryStore((s) => s.removeTrackNote);
 
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errMsg, setErrMsg] = useState('');
+  const [scrub, setScrub] = useState<TrackPointAt | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [draft, setDraft] = useState('');
+  const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [snack, setSnack] = useState<string | null>(null);
 
-  // Camera orbit + gesture bookkeeping (mutated outside React, read each frame).
   const orbit = useRef({ theta: 0.6, phi: 0.85, radius: 4, center: new THREE.Vector3() });
-  const gesture = useRef({ x: 0, y: 0, pinch: 0 });
+  const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
+  const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
+  const scrubRef = useRef<TrackPointAt | null>(null);
 
   const pan = useMemo(
     () =>
-      // The handlers read orbit/gesture refs only on touch events, never during
-      // render — safe, but react-hooks/refs can't see that.
+      // Refs are read on touch events only, never during render.
       // eslint-disable-next-line react-hooks/refs
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderGrant: (_e, g) => {
-          gesture.current = { x: g.x0, y: g.y0, pinch: 0 };
+          gest.current = { x: g.x0, y: g.y0, cx: 0, cy: 0, dist: 0, single: true };
         },
         onPanResponderMove: (e, g) => {
-          const touches = e.nativeEvent.touches;
-          if (touches.length >= 2 && touches[0] && touches[1]) {
-            const d = Math.hypot(
-              touches[0].pageX - touches[1].pageX,
-              touches[0].pageY - touches[1].pageY,
-            );
-            if (gesture.current.pinch > 0) {
-              orbit.current.radius = clamp(
-                orbit.current.radius * (gesture.current.pinch / d),
-                0.9,
-                9,
-              );
+          const t = e.nativeEvent.touches;
+          const o = orbit.current;
+          const gp = gest.current;
+          if (t.length >= 2 && t[0] && t[1]) {
+            const dist = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
+            const cx = (t[0].pageX + t[1].pageX) / 2;
+            const cy = (t[0].pageY + t[1].pageY) / 2;
+            if (gp.dist > 0) {
+              o.radius = clamp(o.radius * (gp.dist / dist), 0.8, 9);
+              o.theta -= (cx - gp.cx) * 0.006;
+              o.phi = clamp(o.phi - (cy - gp.cy) * 0.006, 0.12, 1.45);
             }
-            gesture.current.pinch = d;
+            gp.dist = dist;
+            gp.cx = cx;
+            gp.cy = cy;
+            gp.single = false;
           } else {
-            gesture.current.pinch = 0;
-            orbit.current.theta -= (g.moveX - gesture.current.x) * 0.008;
-            orbit.current.phi = clamp(
-              orbit.current.phi - (g.moveY - gesture.current.y) * 0.006,
-              0.12,
-              1.45,
-            );
+            if (gp.single) {
+              o.theta -= (g.moveX - gp.x) * 0.008;
+              o.phi = clamp(o.phi - (g.moveY - gp.y) * 0.006, 0.12, 1.45);
+            }
+            gp.x = g.moveX;
+            gp.y = g.moveY;
+            gp.single = true;
+            gp.dist = 0;
           }
-          gesture.current.x = g.moveX;
-          gesture.current.y = g.moveY;
         },
       }),
     [],
   );
+
+  const notes = track?.notes;
+  const ordered = useMemo(() => orderNotes(notes ?? []), [notes]);
+  const markers = useMemo(
+    () => ordered.map((n, i) => ({ distanceM: n.distanceM, label: String(i + 1) })),
+    [ordered],
+  );
+  const noteById = (id: string) => ordered.find((n) => n.id === id);
 
   const fileUri = track?.fileUri;
   const bbox = track?.stats.bbox;
@@ -94,18 +136,25 @@ export function Trail3DGLScreen({ trackId }: Props) {
         return;
       }
       const hm = await fetchHeightmap(bbox);
-      const { group, center, radius } = buildTerrain(hm, pts);
+      const { group, center, radius, project } = buildTerrain(hm, pts);
+      projectRef.current = project;
 
       const renderer = new Renderer({ gl });
       renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
       renderer.setClearColor(0xcfe0ec, 1);
-
       const scene = new THREE.Scene();
       scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 0.9));
       const sun = new THREE.DirectionalLight(0xffffff, 1.1);
       sun.position.set(1.5, 2.5, 1);
       scene.add(sun);
       scene.add(group);
+
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.022, 16, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x2e5d80 }),
+      );
+      marker.visible = false;
+      scene.add(marker);
 
       const camera = new THREE.PerspectiveCamera(
         55,
@@ -126,14 +175,83 @@ export function Trail3DGLScreen({ trackId }: Props) {
           c.z + r * Math.sin(phi) * Math.cos(theta),
         );
         camera.lookAt(c);
+        const sc = scrubRef.current;
+        if (sc && projectRef.current) {
+          marker.position.copy(projectRef.current(sc.longitude, sc.latitude));
+          marker.visible = true;
+        } else {
+          marker.visible = false;
+        }
         renderer.render(scene, camera);
         gl.endFrameEXP();
       };
       render();
     } catch (e) {
-      setErrMsg(e instanceof Error ? `${e.message}` : String(e));
+      setErrMsg(e instanceof Error ? e.message : String(e));
       setStatus('error');
     }
+  };
+
+  const onScrub = (at: TrackPointAt | null) => {
+    scrubRef.current = at;
+    setScrub(at);
+  };
+
+  const pickPhoto = async (fromCamera: boolean) => {
+    try {
+      if (fromCamera) {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          setSnack('Camera permission denied');
+          return;
+        }
+      }
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync({ quality: 0.6 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+      if (!result.canceled && result.assets[0]) setDraftPhoto(result.assets[0].uri);
+    } catch {
+      setSnack('Could not attach photo');
+    }
+  };
+
+  const commit = async () => {
+    const text = draft.trim();
+    if (!editing || !text) {
+      setEditing(null);
+      return;
+    }
+    try {
+      if (editing.mode === 'add') {
+        const photo = draftPhoto
+          ? await storage.importPhoto(draftPhoto, storage.newId())
+          : undefined;
+        addTrackNote(trackId, editing.distanceM, text, photo);
+      } else {
+        const existing = noteById(editing.noteId)?.photoUri;
+        let photo: string | null | undefined;
+        if (draftPhoto === existing) photo = undefined;
+        else if (!draftPhoto) photo = null;
+        else photo = await storage.importPhoto(draftPhoto, storage.newId());
+        updateTrackNote(trackId, editing.noteId, text, photo);
+      }
+    } catch {
+      setSnack('Could not save the photo');
+    }
+    setEditing(null);
+    setDraft('');
+    setDraftPhoto(null);
+  };
+
+  const onExportPdf = async () => {
+    if (!track || !points) return;
+    setExporting(true);
+    try {
+      await exportTrailPdf(track, points);
+    } catch {
+      setSnack('Could not export PDF');
+    }
+    setExporting(false);
   };
 
   if (!track) {
@@ -152,54 +270,203 @@ export function Trail3DGLScreen({ trackId }: Props) {
 
   return (
     <View style={styles.fill}>
-      <GLView style={styles.fill} onContextCreate={onContextCreate} {...pan.panHandlers} />
-
-      {status === 'loading' && (
-        <View style={styles.center} pointerEvents="none">
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Building 3D terrain…</Text>
-        </View>
-      )}
-      {status === 'error' && (
-        <View style={styles.center} pointerEvents="none">
-          <Text>Couldn&apos;t load 3D terrain.</Text>
-          {errMsg ? (
-            <Text variant="bodySmall" style={styles.errDetail}>
-              {errMsg}
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
+        <View style={[styles.glBox, { paddingTop: insets.top }]}>
+          <GLView style={styles.fill} onContextCreate={onContextCreate} {...pan.panHandlers} />
+          {status === 'loading' && (
+            <View style={styles.center} pointerEvents="none">
+              <ActivityIndicator size="large" />
+              <Text style={styles.loadingText}>Building 3D terrain…</Text>
+            </View>
+          )}
+          {status === 'error' && (
+            <View style={styles.center} pointerEvents="none">
+              <Text>Couldn&apos;t load 3D terrain.</Text>
+              {errMsg ? (
+                <Text variant="bodySmall" style={styles.errDetail}>
+                  {errMsg}
+                </Text>
+              ) : null}
+            </View>
+          )}
+          <Appbar.BackAction
+            onPress={() => router.back()}
+            style={[styles.back, { top: insets.top + 2 }]}
+          />
+          <Surface style={[styles.summary, { top: insets.top + 2 }]} elevation={3}>
+            <Text variant="titleSmall" numberOfLines={1}>
+              {track.name}
             </Text>
-          ) : null}
+            <View style={styles.summaryRow}>
+              <Text variant="labelMedium">{formatDistance(s.distanceM)}</Text>
+              <Text variant="labelMedium">↑ {formatElevation(s.ascentM)}</Text>
+              <Text variant="labelMedium">↓ {formatElevation(s.descentM)}</Text>
+              <Text variant="labelMedium">{formatDuration(s.durationS)}</Text>
+              <Text variant="labelMedium">{formatPace(s.avgSpeedMps)}</Text>
+            </View>
+          </Surface>
         </View>
-      )}
 
-      <Appbar.BackAction
-        onPress={() => router.back()}
-        style={[styles.back, { top: insets.top + 4 }]}
-      />
-      <Surface style={[styles.summary, { top: insets.top + 4 }]} elevation={3}>
-        <Text variant="titleSmall" numberOfLines={1}>
-          {track.name}
-        </Text>
-        <View style={styles.summaryRow}>
-          <Text variant="labelMedium">{formatDistance(s.distanceM)}</Text>
-          <Text variant="labelMedium">↑ {formatElevation(s.ascentM)}</Text>
-          <Text variant="labelMedium">↓ {formatElevation(s.descentM)}</Text>
-          <Text variant="labelMedium">{formatDuration(s.durationS)}</Text>
-          <Text variant="labelMedium">{formatPace(s.avgSpeedMps)}</Text>
-        </View>
-      </Surface>
+        {points && (
+          <>
+            <View style={styles.scrubRow}>
+              {scrub ? (
+                <Text variant="bodySmall">
+                  {formatDistance(scrub.distanceM)}
+                  {scrub.elevation !== undefined ? ` · ${formatElevation(scrub.elevation)}` : ''}
+                  {scrub.speed !== undefined ? ` · ${formatSpeed(scrub.speed)}` : ''}
+                </Text>
+              ) : (
+                <Text variant="bodySmall" style={styles.hint}>
+                  Drag the profile to move the marker on the terrain.
+                </Text>
+              )}
+            </View>
+            <ElevationProfile
+              points={points}
+              ascentM={s.ascentM}
+              descentM={s.descentM}
+              markers={markers}
+              selectedDistanceM={scrub?.distanceM ?? null}
+              onScrub={onScrub}
+            />
 
-      {points && points.length > 0 && (
-        <Surface style={[styles.profile, { paddingBottom: insets.bottom }]} elevation={4}>
-          <ElevationProfile points={points} ascentM={s.ascentM} descentM={s.descentM} />
-        </Surface>
-      )}
+            <View style={styles.notesHeader}>
+              <Text variant="titleSmall" style={styles.notesTitle}>
+                Notes ({ordered.length})
+              </Text>
+              <Button
+                compact
+                icon="map-marker-plus"
+                disabled={!scrub}
+                onPress={() => {
+                  if (!scrub) return;
+                  setDraft('');
+                  setDraftPhoto(null);
+                  setEditing({ mode: 'add', distanceM: scrub.distanceM });
+                }}
+              >
+                Add note
+              </Button>
+            </View>
+            {ordered.length === 0 ? (
+              <Text variant="bodySmall" style={[styles.hint, styles.pad]}>
+                Scrub the profile to a spot and tap “Add note”.
+              </Text>
+            ) : (
+              ordered.map((n, i) => (
+                <View key={n.id} style={styles.noteRow}>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{i + 1}</Text>
+                  </View>
+                  <Pressable
+                    style={styles.noteBody}
+                    onPress={() => onScrub(interpolateTrackAtDistance(points, n.distanceM))}
+                  >
+                    <Text variant="bodyMedium">{n.text}</Text>
+                    <Text variant="bodySmall" style={styles.hint}>
+                      {formatDistance(n.distanceM)}
+                    </Text>
+                    {n.photoUri && (
+                      <Pressable onPress={() => setViewingPhoto(n.photoUri ?? null)}>
+                        <Image source={{ uri: n.photoUri }} style={styles.noteThumb} />
+                      </Pressable>
+                    )}
+                  </Pressable>
+                  <IconButton
+                    icon="pencil-outline"
+                    onPress={() => {
+                      setDraft(n.text);
+                      setDraftPhoto(n.photoUri ?? null);
+                      setEditing({ mode: 'edit', noteId: n.id });
+                    }}
+                  />
+                  <IconButton
+                    icon="trash-can-outline"
+                    onPress={() => {
+                      removeTrackNote(trackId, n.id);
+                      setSnack('Note deleted');
+                    }}
+                  />
+                </View>
+              ))
+            )}
+
+            <Button
+              mode="contained-tonal"
+              icon="file-pdf-box"
+              onPress={onExportPdf}
+              loading={exporting}
+              disabled={exporting}
+              style={styles.pdfBtn}
+            >
+              Export PDF
+            </Button>
+          </>
+        )}
+      </ScrollView>
+
+      <Portal>
+        <Dialog visible={editing !== null} onDismiss={() => setEditing(null)}>
+          <Dialog.Title>{editing?.mode === 'edit' ? 'Edit note' : 'New note'}</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Note"
+              value={draft}
+              onChangeText={setDraft}
+              autoFocus
+              multiline
+              mode="outlined"
+            />
+            {draftPhoto ? (
+              <View style={styles.photoPreviewWrap}>
+                <Image source={{ uri: draftPhoto }} style={styles.photoPreview} />
+                <Button compact icon="image-remove" onPress={() => setDraftPhoto(null)}>
+                  Remove photo
+                </Button>
+              </View>
+            ) : (
+              <View style={styles.photoButtons}>
+                <Button compact icon="image-outline" onPress={() => pickPhoto(false)}>
+                  Photo
+                </Button>
+                <Button compact icon="camera-outline" onPress={() => pickPhoto(true)}>
+                  Camera
+                </Button>
+              </View>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setEditing(null)}>Cancel</Button>
+            <Button onPress={commit} disabled={!draft.trim()}>
+              Save
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={viewingPhoto !== null} onDismiss={() => setViewingPhoto(null)}>
+          <Dialog.Content>
+            {viewingPhoto && (
+              <Image source={{ uri: viewingPhoto }} style={styles.photoFull} resizeMode="contain" />
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setViewingPhoto(null)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={2500}>
+        {snack ?? ''}
+      </Snackbar>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  pad: { padding: 16 },
+  pad: { paddingHorizontal: 16 },
+  glBox: { height: 420, backgroundColor: '#cfe0ec' },
   center: {
     position: 'absolute',
     top: 0,
@@ -223,12 +490,33 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  profile: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+  scrubRow: { paddingHorizontal: 16, paddingTop: 10 },
+  hint: { opacity: 0.7 },
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingTop: 8,
   },
+  notesTitle: { fontWeight: '700' },
+  noteRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 4 },
+  noteBody: { flex: 1, paddingVertical: 8 },
+  badge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    backgroundColor: '#4F7A3A',
+  },
+  badgeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  noteThumb: { width: 120, height: 90, borderRadius: 8, marginTop: 6 },
+  pdfBtn: { marginHorizontal: 16, marginTop: 16 },
+  photoButtons: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  photoPreviewWrap: { marginTop: 10, alignItems: 'flex-start' },
+  photoPreview: { width: '100%', height: 160, borderRadius: 8 },
+  photoFull: { width: '100%', height: 360 },
 });

@@ -10,21 +10,37 @@ import {
   ImageSource,
   Layer,
   Map,
+  Marker,
   UserLocation,
 } from '@maplibre/maplibre-react-native';
 import { useLibraryStore } from '@state/libraryStore';
 import { useMapStore } from '@state/mapStore';
 import { useRecorderStore } from '@state/recorderStore';
 import { useSettingsStore } from '@state/settingsStore';
+import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { Banner, FAB, IconButton, Menu, Snackbar, Surface, Text } from 'react-native-paper';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import {
+  Banner,
+  Button,
+  Dialog,
+  FAB,
+  IconButton,
+  Menu,
+  Portal,
+  Snackbar,
+  Surface,
+  Text,
+  TextInput,
+  useTheme,
+} from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompassBadge } from './components/CompassBadge';
 import { ElevationProfile } from '../library/components/ElevationProfile';
 import { RecordControls } from './components/RecordControls';
 import { StatsHud } from './components/StatsHud';
+import { WaypointMarkerPin } from './components/WaypointMarkerPin';
 import { toLineFeature, toLngLatBounds } from './geojson';
 import { buildOsmStyle } from './mapStyle';
 import { useCompass } from './useCompass';
@@ -34,6 +50,7 @@ import { useTrackOverlays } from './useTrackOverlays';
 
 export function MapScreen() {
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const cameraRef = useRef<CameraRef>(null);
 
   const tileUrl = useSettingsStore((s) => s.tileUrl);
@@ -116,9 +133,40 @@ export function MapScreen() {
   const resume = useRecorderStore((s) => s.resume);
   const stop = useRecorderStore((s) => s.stop);
   const addWaypoint = useRecorderStore((s) => s.addWaypoint);
+  const waypoints = useRecorderStore((s) => s.waypoints);
+  const updateWaypoint = useRecorderStore((s) => s.updateWaypoint);
+  const removeWaypoint = useRecorderStore((s) => s.removeWaypoint);
 
   const [elapsedS, setElapsedS] = useState(0);
   const [snack, setSnack] = useState<string | null>(null);
+
+  // Tapping a live waypoint marker opens an editor for its note + photo.
+  const [editWpId, setEditWpId] = useState<string | null>(null);
+  const [wpDraft, setWpDraft] = useState('');
+  const editWp = waypoints.find((w) => w.id === editWpId) ?? null;
+
+  const openWaypoint = (id: string, note: string) => {
+    setEditWpId(id);
+    setWpDraft(note);
+  };
+  const saveWaypoint = () => {
+    if (editWpId) updateWaypoint(editWpId, { note: wpDraft.trim() });
+    setEditWpId(null);
+  };
+  const pickWaypointPhoto = async (fromCamera: boolean) => {
+    if (!editWpId) return;
+    if (fromCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) return;
+    }
+    const res = fromCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.6 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+    const picked = res.canceled ? null : res.assets[0]?.uri;
+    if (!picked) return;
+    const stored = await storage.importPhoto(picked, storage.newId());
+    updateWaypoint(editWpId, { photoUri: stored });
+  };
 
   // Live wall-clock timer, independent of GPS fix cadence.
   useEffect(() => {
@@ -277,6 +325,19 @@ export function MapScreen() {
           </GeoJSONSource>
         )}
 
+        {status !== 'idle' &&
+          waypoints.map((w) => (
+            <Marker key={w.id} id={w.id} lngLat={[w.longitude, w.latitude]} anchor="bottom">
+              <Pressable
+                onPress={() => openWaypoint(w.id, w.note ?? '')}
+                hitSlop={10}
+                accessibilityLabel={`Edit ${w.label}`}
+              >
+                <WaypointMarkerPin hasPhoto={!!w.photoUri} />
+              </Pressable>
+            </Marker>
+          ))}
+
         <UserLocation animated accuracy heading />
       </Map>
 
@@ -369,7 +430,8 @@ export function MapScreen() {
             onStop={handleStop}
             onWaypoint={() => {
               const n = addWaypoint();
-              if (n > 0) setSnack(`Waypoint ${n} added`);
+              if (n > 0) setSnack(`Waypoint ${n} dropped — tap it to add a note or photo`);
+              else setSnack('Waiting for a GPS fix before dropping a waypoint');
             }}
           />
         </View>
@@ -396,6 +458,57 @@ export function MapScreen() {
           />
         </Surface>
       )}
+
+      <Portal>
+        <Dialog visible={editWp !== null} onDismiss={saveWaypoint}>
+          <Dialog.Title>{editWp?.label ?? 'Waypoint'}</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Note"
+              value={wpDraft}
+              onChangeText={setWpDraft}
+              autoFocus
+              multiline
+              mode="outlined"
+              placeholder="What's here?"
+            />
+            {editWp?.photoUri ? (
+              <View style={styles.wpPhotoWrap}>
+                <Image source={{ uri: editWp.photoUri }} style={styles.wpPhoto} />
+                <Button
+                  compact
+                  icon="image-remove"
+                  onPress={() => editWpId && updateWaypoint(editWpId, { photoUri: '' })}
+                >
+                  Remove photo
+                </Button>
+              </View>
+            ) : (
+              <View style={styles.wpPhotoButtons}>
+                <Button compact icon="image-outline" onPress={() => pickWaypointPhoto(false)}>
+                  Photo
+                </Button>
+                <Button compact icon="camera-outline" onPress={() => pickWaypointPhoto(true)}>
+                  Camera
+                </Button>
+              </View>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              textColor={theme.colors.error}
+              onPress={() => {
+                if (editWpId) removeWaypoint(editWpId);
+                setEditWpId(null);
+              }}
+            >
+              Delete
+            </Button>
+            <View style={styles.fill} />
+            <Button onPress={saveWaypoint}>Done</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
 
       <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3000}>
         {snack ?? ''}
@@ -433,4 +546,7 @@ const styles = StyleSheet.create({
     paddingLeft: 14,
   },
   inspectTitle: { flexShrink: 1, fontWeight: '700' },
+  wpPhotoWrap: { marginTop: 12, alignItems: 'flex-start', gap: 6 },
+  wpPhoto: { width: '100%', height: 180, borderRadius: 10 },
+  wpPhotoButtons: { marginTop: 12, flexDirection: 'row', gap: 8 },
 });

@@ -1,5 +1,6 @@
 import { pickTerrainZoom, rangeBbox, terrariumToMeters, tileRangeForBbox } from '@core/geo/terrain';
 import type { BoundingBox } from '@core/models';
+import * as storage from '@data/storage';
 import UPNG from 'upng-js';
 
 const TILE = 256;
@@ -36,9 +37,13 @@ export async function fetchHeightmap(bounds: BoundingBox, grid = 192): Promise<H
       const oy = (ty - range.minY) * TILE;
       jobs.push(
         (async () => {
-          const res = await fetch(demUrl(z, tx, ty));
-          const buf = await res.arrayBuffer();
-          const img = UPNG.decode(buf);
+          const bytes = await storage.downloadBytes(demUrl(z, tx, ty), `${z}-${tx}-${ty}.png`);
+          const img = UPNG.decode(
+            bytes.buffer.slice(
+              bytes.byteOffset,
+              bytes.byteOffset + bytes.byteLength,
+            ) as ArrayBuffer,
+          );
           const rgba = new Uint8Array(UPNG.toRGBA8(img)[0]!);
           for (let y = 0; y < TILE; y++) {
             for (let x = 0; x < TILE; x++) {

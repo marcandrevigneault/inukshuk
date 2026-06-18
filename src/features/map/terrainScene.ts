@@ -23,14 +23,27 @@ export interface TerrainBuild {
   group: THREE.Group;
   center: THREE.Vector3;
   radius: number;
+  /** Map a lng/lat to its position on the terrain surface (for markers). */
+  project: (lng: number, lat: number) => THREE.Vector3;
+}
+
+/** RGBA texture to drape over the terrain (e.g. stitched OSM tiles). */
+export interface TerrainTexture {
+  data: Uint8Array;
+  width: number;
+  height: number;
 }
 
 /**
- * Build a real 3D terrain mesh (displaced, hypsometric-coloured, lit) from a DEM
- * heightmap, with the GPX trace draped on the surface as a tube. The model is
- * normalised so its larger horizontal side spans 2 world units.
+ * Build a real 3D terrain mesh (displaced, lit) from a DEM heightmap, with the
+ * GPX trace draped on the surface as a tube. Coloured by an optional draped
+ * texture, else a hypsometric tint. Normalised so its larger side spans 2 units.
  */
-export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): TerrainBuild {
+export function buildTerrain(
+  hm: Heightmap,
+  points: readonly TrackPoint[],
+  texture?: TerrainTexture,
+): TerrainBuild {
   const { data, grid, bbox, minH, maxH } = hm;
   const midLat = (bbox.minLat + bbox.maxLat) / 2;
   const mPerDegLat = 111320;
@@ -44,8 +57,16 @@ export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): Terr
   const yOf = (h: number) => (h - minH) * scale * vExag;
   const range = maxH - minH || 1;
 
+  const project = (lng: number, lat: number): THREE.Vector3 => {
+    const fx = (lng - bbox.minLng) / (bbox.maxLng - bbox.minLng || 1);
+    const fyN = (bbox.maxLat - lat) / (bbox.maxLat - bbox.minLat || 1);
+    const h = sampleGridBilinear(data, grid, grid, fx, fyN);
+    return new THREE.Vector3((fx - 0.5) * spanXn, yOf(h) + 0.02, (fyN - 0.5) * spanZn);
+  };
+
   const positions = new Float32Array(grid * grid * 3);
   const colors = new Float32Array(grid * grid * 3);
+  const uvs = new Float32Array(grid * grid * 2);
   const color = new THREE.Color();
   for (let gy = 0; gy < grid; gy++) {
     for (let gx = 0; gx < grid; gx++) {
@@ -54,6 +75,8 @@ export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): Terr
       positions[idx * 3] = (gx / (grid - 1) - 0.5) * spanXn;
       positions[idx * 3 + 1] = yOf(h);
       positions[idx * 3 + 2] = (gy / (grid - 1) - 0.5) * spanZn;
+      uvs[idx * 2] = gx / (grid - 1);
+      uvs[idx * 2 + 1] = gy / (grid - 1);
       elevationColor((h - minH) / range, color);
       colors[idx * 3] = color.r;
       colors[idx * 3 + 1] = color.g;
@@ -73,22 +96,29 @@ export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): Terr
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
 
+  let material: THREE.MeshStandardMaterial;
+  if (texture) {
+    const tex = new THREE.DataTexture(
+      new Uint8Array(texture.data),
+      texture.width,
+      texture.height,
+      THREE.RGBAFormat,
+    );
+    tex.needsUpdate = true;
+    material = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+  } else {
+    material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+  }
+
   const group = new THREE.Group();
-  group.add(
-    new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 })),
-  );
+  group.add(new THREE.Mesh(geo, material));
 
   if (points.length >= 2) {
-    const pts: THREE.Vector3[] = [];
-    for (const p of points) {
-      const fx = (p.longitude - bbox.minLng) / (bbox.maxLng - bbox.minLng || 1);
-      const fyN = (bbox.maxLat - p.latitude) / (bbox.maxLat - bbox.minLat || 1);
-      const h = sampleGridBilinear(data, grid, grid, fx, fyN);
-      pts.push(new THREE.Vector3((fx - 0.5) * spanXn, yOf(h) + 0.02, (fyN - 0.5) * spanZn));
-    }
+    const pts = points.map((p) => project(p.longitude, p.latitude));
     const curve = new THREE.CatmullRomCurve3(pts);
     const tube = new THREE.TubeGeometry(curve, Math.min(800, pts.length * 4), 0.009, 6, false);
     group.add(
@@ -103,5 +133,6 @@ export function buildTerrain(hm: Heightmap, points: readonly TrackPoint[]): Terr
     group,
     center: new THREE.Vector3(0, (yOf(maxH) + yOf(minH)) / 2, 0),
     radius: Math.max(spanXn, spanZn) * 1.15,
+    project,
   };
 }

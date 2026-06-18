@@ -1,6 +1,6 @@
 {
   "name": "inukshuk",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -12,6 +12,7 @@
     "expo-document-picker": "~56.0.4",
     "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.7",
+    "expo-gl": "~56.0.5",
     "expo-image-picker": "~56.0.18",
     "expo-keep-awake": "~56.0.3",
     "expo-linking": "~56.0.14",
@@ -24,6 +25,7 @@
     "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",
     "expo-system-ui": "~56.0.5",
+    "expo-three": "^8.0.0",
     "expo-updates": "~56.0.19",
     "fast-xml-parser": "^5.9.0",
     "fflate": "^0.8.3",
@@ -40,6 +42,8 @@
     "react-native-svg": "15.15.4",
     "react-native-webview": "13.16.1",
     "react-native-worklets": "0.8.3",
+    "three": "^0.169.0",
+    "upng-js": "^2.1.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -48,6 +52,7 @@
     "@types/jest": "^29.5.14",
     "@types/proj4": "^2.5.6",
     "@types/react": "~19.2.2",
+    "@types/three": "^0.169.0",
     "babel-preset-expo": "^56.0.15",
     "eslint": "^9.39.4",
     "eslint-config-expo": "^56.0.4",

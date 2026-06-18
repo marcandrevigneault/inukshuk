@@ -18,15 +18,24 @@ const EMPTY_STATS: TrackStats = {
 
 export type RecorderStatus = 'idle' | 'recording' | 'paused';
 
+/** A waypoint dropped live during recording — materialized as a trail note on stop. */
+interface PendingWaypoint {
+  distanceM: number;
+  label: string;
+}
+
 interface RecorderState {
   status: RecorderStatus;
   name: string;
   startedAt: number | null;
   points: TrackPoint[];
   stats: TrackStats;
+  waypoints: PendingWaypoint[];
 
   start: (name?: string) => void;
   addPoint: (point: TrackPoint) => void;
+  /** Drop a waypoint at the current distance (becomes a numbered note on stop). */
+  addWaypoint: () => number;
   pause: () => void;
   resume: () => void;
   /** Finalize: compute authoritative stats, persist GPX, index it, reset. */
@@ -47,6 +56,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   startedAt: null,
   points: [],
   stats: EMPTY_STATS,
+  waypoints: [],
 
   start: (name) => {
     const now = Date.now();
@@ -56,6 +66,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       startedAt: now,
       points: [],
       stats: EMPTY_STATS,
+      waypoints: [],
     });
   },
 
@@ -71,6 +82,14 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     });
   },
 
+  addWaypoint: () => {
+    const { status, stats, waypoints } = get();
+    if (status !== 'recording') return 0;
+    const n = waypoints.length + 1;
+    set({ waypoints: [...waypoints, { distanceM: stats.distanceM, label: `Waypoint ${n}` }] });
+    return n;
+  },
+
   pause: () => {
     if (get().status === 'recording') set({ status: 'paused' });
   },
@@ -80,7 +99,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   },
 
   stop: async () => {
-    const { points, name, startedAt, status } = get();
+    const { points, name, startedAt, status, waypoints } = get();
     if (status === 'idle' || startedAt === null) return null;
 
     const endedAt = Date.now();
@@ -101,14 +120,34 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         metadata: { name, time: startedAt, creator: 'Inukshuk' },
       });
       const fileUri = storage.writeTrackGpx(track.id, gpx);
-      useLibraryStore.getState().addTrack(track, fileUri);
+      const lib = useLibraryStore.getState();
+      lib.addTrack(track, fileUri);
+      // Materialize live waypoints as numbered notes on the saved trail, clamped
+      // to the final track length.
+      for (const wp of waypoints) {
+        lib.addTrackNote(track.id, Math.min(wp.distanceM, finalStats.distanceM), wp.label);
+      }
     }
 
-    set({ status: 'idle', name: '', startedAt: null, points: [], stats: EMPTY_STATS });
+    set({
+      status: 'idle',
+      name: '',
+      startedAt: null,
+      points: [],
+      stats: EMPTY_STATS,
+      waypoints: [],
+    });
     return track;
   },
 
   discard: () => {
-    set({ status: 'idle', name: '', startedAt: null, points: [], stats: EMPTY_STATS });
+    set({
+      status: 'idle',
+      name: '',
+      startedAt: null,
+      points: [],
+      stats: EMPTY_STATS,
+      waypoints: [],
+    });
   },
 }));

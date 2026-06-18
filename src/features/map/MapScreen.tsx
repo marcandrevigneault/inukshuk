@@ -113,6 +113,7 @@ export function MapScreen() {
   const pause = useRecorderStore((s) => s.pause);
   const resume = useRecorderStore((s) => s.resume);
   const stop = useRecorderStore((s) => s.stop);
+  const addWaypoint = useRecorderStore((s) => s.addWaypoint);
 
   const [elapsedS, setElapsedS] = useState(0);
   const [snack, setSnack] = useState<string | null>(null);
@@ -347,6 +348,10 @@ export function MapScreen() {
             onPause={pause}
             onResume={resume}
             onStop={handleStop}
+            onWaypoint={() => {
+              const n = addWaypoint();
+              if (n > 0) setSnack(`Waypoint ${n} added`);
+            }}
           />
         </View>
       </View>

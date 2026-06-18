@@ -149,10 +149,19 @@ export function Trail3DGLScreen({ trackId }: Props) {
       scene.add(sun);
       scene.add(group);
 
-      const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.022, 16, 16),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x2e5d80 }),
+      // A pin that stands above the surface so the highlighted point is obvious.
+      const marker = new THREE.Group();
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.032, 16, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0x7a5200 }),
       );
+      head.position.y = 0.14;
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.006, 0.006, 0.14, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x444444 }),
+      );
+      pole.position.y = 0.07;
+      marker.add(head, pole);
       marker.visible = false;
       scene.add(marker);
 

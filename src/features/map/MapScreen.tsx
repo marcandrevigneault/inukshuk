@@ -1,6 +1,6 @@
 import { parseGpx } from '@core/geo/gpx';
 import type { TrackPointAt } from '@core/geo/track';
-import type { BoundingBox, TrackPoint } from '@core/models';
+import type { BoundingBox, LngLat, TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
 import { mapColors } from '@ui/theme';
 import {
@@ -214,6 +214,13 @@ export function MapScreen() {
 
   const trailFeature = useMemo(() => toLineFeature(points), [points]);
 
+  // Active saved-trail polylines (lng/lat) to drape on the 3D terrain.
+  const trail3dLines = useMemo<readonly LngLat[][]>(
+    () =>
+      showTrackOverlays ? trackOverlays.map((t) => t.feature.geometry.coordinates as LngLat[]) : [],
+    [showTrackOverlays, trackOverlays],
+  );
+
   // Union bounds of all active overlays, for the "fit to page" control.
   const overlaysBbox = useMemo<BoundingBox | null>(() => {
     if (overlays.length === 0) return null;
@@ -260,7 +267,14 @@ export function MapScreen() {
   return (
     <View style={styles.fill}>
       {terrain3d ? (
-        <Terrain3DLiveView center={location} basemap={basemap} permission={permission} />
+        <Terrain3DLiveView
+          center={location}
+          basemap={basemap}
+          permission={permission}
+          trails={trail3dLines}
+          recordPoints={points}
+          waypoints={waypoints}
+        />
       ) : (
         <Map
           style={styles.fill}

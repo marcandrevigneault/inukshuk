@@ -15,6 +15,8 @@ interface MapState {
   showPdfOverlay: boolean;
   /** Whether trail overlays are drawn. */
   showTrackOverlays: boolean;
+  /** Whether the map shows a 3D relief (DEM hillshade + terrain + pitch). */
+  terrain3d: boolean;
   /** One-shot request for the map to fit these bounds (e.g. "view trail"). */
   focusBounds: BoundingBox | null;
   setActiveTrackIds: (ids: string[]) => void;
@@ -23,6 +25,7 @@ interface MapState {
   setFollowUser: (follow: boolean) => void;
   togglePdfOverlay: () => void;
   toggleTrackOverlays: () => void;
+  toggleTerrain3d: () => void;
   setFocusBounds: (b: BoundingBox | null) => void;
 }
 
@@ -31,6 +34,7 @@ export const useMapStore = create<MapState>((set) => ({
   followUser: true,
   showPdfOverlay: true,
   showTrackOverlays: true,
+  terrain3d: false,
   focusBounds: null,
   setFocusBounds: (b) => set({ focusBounds: b }),
   setActiveTrackIds: (ids) => set({ activeTrackIds: ids }),
@@ -44,4 +48,5 @@ export const useMapStore = create<MapState>((set) => ({
   setFollowUser: (follow) => set({ followUser: follow }),
   togglePdfOverlay: () => set((s) => ({ showPdfOverlay: !s.showPdfOverlay })),
   toggleTrackOverlays: () => set((s) => ({ showTrackOverlays: !s.showTrackOverlays })),
+  toggleTerrain3d: () => set((s) => ({ terrain3d: !s.terrain3d })),
 }));

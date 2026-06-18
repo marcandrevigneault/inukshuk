@@ -38,7 +38,6 @@ export function MapScreen() {
 
   const tileUrl = useSettingsStore((s) => s.tileUrl);
   const keepAwake = useSettingsStore((s) => s.keepAwakeWhileRecording);
-  const style = useMemo(() => buildOsmStyle(tileUrl), [tileUrl]);
 
   const { permission } = useLocationTracking();
   const heading = useCompass();
@@ -54,6 +53,9 @@ export function MapScreen() {
   const togglePdfOverlay = useMapStore((s) => s.togglePdfOverlay);
   const showTrackOverlays = useMapStore((s) => s.showTrackOverlays);
   const toggleTrackOverlays = useMapStore((s) => s.toggleTrackOverlays);
+  const terrain3d = useMapStore((s) => s.terrain3d);
+  const toggleTerrain3d = useMapStore((s) => s.toggleTerrain3d);
+  const style = useMemo(() => buildOsmStyle(tileUrl, terrain3d), [tileUrl, terrain3d]);
   const focusBounds = useMapStore((s) => s.focusBounds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
@@ -156,6 +158,11 @@ export function MapScreen() {
       null,
     );
   }, [overlays]);
+
+  // Tilt the camera into a relief view when 3D is on, back to flat when off.
+  useEffect(() => {
+    cameraRef.current?.setStop({ pitch: terrain3d ? 60 : 0, duration: 500 });
+  }, [terrain3d]);
 
   const fitActiveMap = () => {
     if (overlaysBbox) {
@@ -295,34 +302,41 @@ export function MapScreen() {
             style={styles.controlFab}
           />
         )}
-        {(overlays.length > 0 || trackOverlays.length > 0) && (
-          <Menu
-            visible={overlayMenuOpen}
-            onDismiss={() => setOverlayMenuOpen(false)}
-            anchor={
-              <FAB
-                icon="layers"
-                size="small"
-                variant="surface"
-                onPress={() => setOverlayMenuOpen(true)}
-                style={styles.controlFab}
-                accessibilityLabel="Overlays"
-              />
-            }
-          >
-            {/* Layer visibility toggles. Extensible: future overlay types add a row here. */}
+        <Menu
+          visible={overlayMenuOpen}
+          onDismiss={() => setOverlayMenuOpen(false)}
+          anchor={
+            <FAB
+              icon="layers"
+              size="small"
+              variant="surface"
+              onPress={() => setOverlayMenuOpen(true)}
+              style={styles.controlFab}
+              accessibilityLabel="Layers"
+            />
+          }
+        >
+          {/* Layer visibility toggles. Extensible: future overlay types add a row here. */}
+          <Menu.Item
+            leadingIcon={terrain3d ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            onPress={toggleTerrain3d}
+            title="3D relief"
+          />
+          {overlays.length > 0 && (
             <Menu.Item
               leadingIcon={showPdfOverlay ? 'checkbox-marked' : 'checkbox-blank-outline'}
               onPress={togglePdfOverlay}
               title={`PDF overlays (${overlays.length})`}
             />
+          )}
+          {trackOverlays.length > 0 && (
             <Menu.Item
               leadingIcon={showTrackOverlays ? 'checkbox-marked' : 'checkbox-blank-outline'}
               onPress={toggleTrackOverlays}
               title={`Trail overlays (${trackOverlays.length})`}
             />
-          </Menu>
-        )}
+          )}
+        </Menu>
       </View>
 
       {permission === 'denied' && (

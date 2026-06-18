@@ -1,5 +1,5 @@
 import { padBbox } from '@core/geo/terrain';
-import type { LatLng } from '@core/models';
+import type { BoundingBox, LatLng } from '@core/models';
 import type { MapBasemap } from '@state/mapStore';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
@@ -8,7 +8,7 @@ import { PanResponder, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, IconButton, Text, useTheme } from 'react-native-paper';
 import * as THREE from 'three';
 import { fetchBasemapTexture, fetchHeightmap } from './dem';
-import { buildTerrain } from './terrainScene';
+import { buildTerrain, type TerrainBuild } from './terrainScene';
 
 interface Props {
   /** Live device location; the surface is built around it and a marker tracks it. */
@@ -22,32 +22,94 @@ interface Props {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 // Half-extent (metres) of terrain built around the anchor — ~4 km of context.
 const BOX_M = 4000;
+// Re-anchor (rebuild around the new position) once the user drifts this far from
+// the current box centre, so terrain always extends well ahead of them.
+const REANCHOR_M = 700;
+
+const pointBox = (c: LatLng): BoundingBox => ({
+  minLat: c.latitude,
+  maxLat: c.latitude,
+  minLng: c.longitude,
+  maxLng: c.longitude,
+});
+
+/** Rough planar metres between two coords — fine for the re-anchor threshold. */
+function metresBetween(a: LatLng, b: LatLng): number {
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((((a.latitude + b.latitude) / 2) * Math.PI) / 180);
+  return Math.hypot(
+    (a.latitude - b.latitude) * mPerDegLat,
+    (a.longitude - b.longitude) * mPerDegLng,
+  );
+}
+
+interface Built extends TerrainBuild {
+  bbox: BoundingBox;
+}
+
+/** Fetch the DEM + basemap for a box around `anchor` and build a terrain group. */
+async function fetchAndBuild(anchor: LatLng, basemap: MapBasemap): Promise<Built> {
+  const hm = await fetchHeightmap(padBbox(pointBox(anchor), 0, BOX_M));
+  let texture;
+  if (basemap !== 'relief') {
+    try {
+      texture = await fetchBasemapTexture(hm.range, basemap);
+    } catch {
+      texture = undefined; // fall back to hypsometric relief
+    }
+  }
+  return { ...buildTerrain(hm, [], texture), bbox: hm.bbox };
+}
+
+function disposeGroup(g: THREE.Group): void {
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.geometry) m.geometry.dispose();
+    const mat = m.material as THREE.MeshStandardMaterial | undefined;
+    if (mat) {
+      mat.map?.dispose();
+      mat.dispose();
+    }
+  });
+}
 
 /**
- * M1 of the real-3D main map: a static "3D around me" surface. Builds a real,
- * extruded terrain mesh (expo-gl + Three.js) for a fixed box around the device's
- * location, draped with the active basemap, with a live position marker and
- * orbit/pinch gestures. Tap recenter to rebuild at the current location. Tile
- * streaming as you pan is a later milestone; this fetches one box per anchor.
+ * Real 3D on the main map. Builds an extruded terrain mesh (expo-gl + Three.js)
+ * for a box around the device's location, draped with the active basemap (or
+ * hypsometric relief), with a live "you are here" marker and orbit/pinch
+ * gestures. In follow mode the camera tracks the user (M2) and the terrain box
+ * re-anchors around them as they move (M3) — fetching only new tiles, since the
+ * tile cache serves the overlap. Tap the locate button to toggle follow.
  */
 export function Terrain3DLiveView({ center, basemap, permission }: Props) {
   const theme = useTheme();
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [follow, setFollow] = useState(true);
+  const [streaming, setStreaming] = useState(false);
   const [recenter, setRecenter] = useState(0);
 
-  // Latest location, read by the render loop (live marker) and at build time
-  // (anchor). Updated in an effect so we never mutate a ref during render.
+  // Latest props read by the render loop / async re-anchor, never during render.
   const locRef = useRef<LatLng | null>(center);
+  const followRef = useRef(follow);
+  const basemapRef = useRef(basemap);
   useEffect(() => {
     locRef.current = center;
   }, [center]);
+  useEffect(() => {
+    followRef.current = follow;
+  }, [follow]);
+  useEffect(() => {
+    basemapRef.current = basemap;
+  }, [basemap]);
 
-  const orbit = useRef({ theta: 0.6, phi: 0.85, radius: 4, center: new THREE.Vector3() });
+  const orbit = useRef({ theta: 0.6, phi: 1.12, radius: 4, center: new THREE.Vector3() });
   const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
-  const bboxRef = useRef<{ minLat: number; maxLat: number; minLng: number; maxLng: number } | null>(
-    null,
-  );
+  const bboxRef = useRef<BoundingBox | null>(null);
+  const anchorRef = useRef<LatLng | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+  const reanchoringRef = useRef(false);
 
   const pan = useMemo(
     () =>
@@ -99,34 +161,23 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
     }
     setStatus('loading');
     try {
-      const bbox = padBbox(
-        {
-          minLat: anchor.latitude,
-          maxLat: anchor.latitude,
-          minLng: anchor.longitude,
-          maxLng: anchor.longitude,
-        },
-        0,
-        BOX_M,
-      );
-      const hm = await fetchHeightmap(bbox);
-      bboxRef.current = hm.bbox;
-      let texture;
-      if (basemap !== 'relief') {
-        try {
-          texture = await fetchBasemapTexture(hm.range, basemap);
-        } catch {
-          texture = undefined; // fall back to hypsometric relief
-        }
-      }
-      const { group, center: gc, radius, project } = buildTerrain(hm, [], texture);
+      const {
+        group,
+        center: gc,
+        radius,
+        project,
+        bbox,
+      } = await fetchAndBuild(anchor, basemapRef.current);
       projectRef.current = project;
+      bboxRef.current = bbox;
+      anchorRef.current = anchor;
 
       const renderer = new Renderer({ gl });
       renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
       const SKY = 0xcfe0ec;
       renderer.setClearColor(SKY, 1);
       const scene = new THREE.Scene();
+      sceneRef.current = scene;
       // Fade the terrain into the sky at distance so its edges never read as a
       // floating slab — the mesh appears to extend to a hazy horizon, filling view.
       scene.fog = new THREE.Fog(SKY, radius * 0.7, radius * 2.0);
@@ -135,6 +186,7 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
       sun.position.set(1.5, 2.5, 1);
       scene.add(sun);
       scene.add(group);
+      groupRef.current = group;
 
       // Live "you are here" marker: a coloured head on a pole, set on the surface.
       const marker = new THREE.Group();
@@ -157,35 +209,41 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
         0.01,
         100,
       );
-      orbit.current.center = gc;
       // Closer + lower angle so terrain fills the frame down to a fogged horizon.
+      orbit.current.center = gc;
       orbit.current.radius = clamp(radius * 1.25, 0.8, 9);
-      orbit.current.phi = 1.12;
       setStatus('ready');
 
+      const target = new THREE.Vector3();
       const render = () => {
         requestAnimationFrame(render);
-        const { theta, phi, radius: r, center: c } = orbit.current;
-        camera.position.set(
-          c.x + r * Math.sin(phi) * Math.sin(theta),
-          c.y + r * Math.cos(phi),
-          c.z + r * Math.sin(phi) * Math.cos(theta),
-        );
-        camera.lookAt(c);
-        // Keep the marker on the live position when it falls inside the built box.
+        const o = orbit.current;
+        // Project the live position onto the (possibly re-anchored) surface.
         const loc = locRef.current;
         const b = bboxRef.current;
-        if (loc && b && projectRef.current) {
-          const inside =
-            loc.latitude >= b.minLat &&
-            loc.latitude <= b.maxLat &&
-            loc.longitude >= b.minLng &&
-            loc.longitude <= b.maxLng;
-          marker.visible = inside;
-          if (inside) marker.position.copy(projectRef.current(loc.longitude, loc.latitude));
+        const inside =
+          !!loc &&
+          !!b &&
+          loc.latitude >= b.minLat &&
+          loc.latitude <= b.maxLat &&
+          loc.longitude >= b.minLng &&
+          loc.longitude <= b.maxLng;
+        if (inside && projectRef.current && loc) {
+          target.copy(projectRef.current(loc.longitude, loc.latitude));
+          marker.position.copy(target);
+          marker.visible = true;
+          // Follow mode: keep the camera centred on the moving user.
+          if (followRef.current) o.center.copy(target);
         } else {
           marker.visible = false;
         }
+        const c = o.center;
+        camera.position.set(
+          c.x + o.radius * Math.sin(o.phi) * Math.sin(o.theta),
+          c.y + o.radius * Math.cos(o.phi),
+          c.z + o.radius * Math.sin(o.phi) * Math.cos(o.theta),
+        );
+        camera.lookAt(c);
         renderer.render(scene, camera);
         gl.endFrameEXP();
       };
@@ -194,6 +252,46 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
       setStatus('error');
     }
   };
+
+  // M3: when following and the user has drifted far from the current box centre,
+  // rebuild the terrain around their new position and swap it in (no GL remount).
+  useEffect(() => {
+    if (!follow || !center) return;
+    const anchor = anchorRef.current;
+    const scene = sceneRef.current;
+    if (!anchor || !scene || reanchoringRef.current) return;
+    if (metresBetween(anchor, center) < REANCHOR_M) return;
+    reanchoringRef.current = true;
+    setStreaming(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const built = await fetchAndBuild(center, basemapRef.current);
+        if (cancelled) {
+          disposeGroup(built.group);
+          return;
+        }
+        const old = groupRef.current;
+        scene.add(built.group);
+        if (old) {
+          scene.remove(old);
+          disposeGroup(old);
+        }
+        groupRef.current = built.group;
+        projectRef.current = built.project;
+        bboxRef.current = built.bbox;
+        anchorRef.current = center;
+      } catch {
+        /* keep the existing terrain on failure */
+      } finally {
+        reanchoringRef.current = false;
+        if (!cancelled) setStreaming(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [center, follow]);
 
   if (permission === 'denied') {
     return (
@@ -218,13 +316,13 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
   return (
     <View style={styles.fill}>
       <GLView
-        // Remounting rebuilds the scene: on basemap change or an explicit recenter.
+        // Remounting fully rebuilds the scene: on basemap change or manual recenter.
         key={`${basemap}:${recenter}`}
         style={styles.fill}
         onContextCreate={onContextCreate}
         {...pan.panHandlers}
       />
-      {status === 'loading' && (
+      {(status === 'loading' || streaming) && (
         <View style={styles.centerOverlay} pointerEvents="none">
           <ActivityIndicator />
         </View>
@@ -238,9 +336,16 @@ export function Terrain3DLiveView({ center, basemap, permission }: Props) {
         icon="crosshairs-gps"
         mode="contained"
         size={22}
-        onPress={() => setRecenter((n) => n + 1)}
+        iconColor={follow ? theme.colors.onPrimary : theme.colors.onSurface}
+        containerColor={follow ? theme.colors.primary : theme.colors.surface}
+        onPress={() => {
+          // Retry a failed load; otherwise toggle follow (camera tracks you and
+          // the terrain re-anchors as you move).
+          if (status === 'error') setRecenter((n) => n + 1);
+          else setFollow((f) => !f);
+        }}
         style={styles.recenter}
-        accessibilityLabel="Recenter 3D terrain on me"
+        accessibilityLabel={follow ? 'Stop following my location' : 'Follow my location in 3D'}
       />
     </View>
   );

@@ -107,8 +107,13 @@ export async function readFileBytes(uri: string): Promise<Uint8Array> {
 }
 
 /**
- * Download a remote file (e.g. a DEM tile) into the cache and return its raw
- * bytes. Reliable for binary, unlike RN's `fetch().arrayBuffer()`.
+ * Download a remote file (e.g. a DEM/basemap tile) into the cache and return its
+ * raw bytes. Reliable for binary, unlike RN's `fetch().arrayBuffer()`.
+ *
+ * Tiles are immutable (a given z/x/y never changes), so a cached file is reused
+ * on subsequent calls. This is essential once the 3D view streams terrain as you
+ * move: overlapping tiles between map positions are served from disk instead of
+ * re-downloaded, which keeps it fast and avoids tripping tile-server rate limits.
  */
 export async function downloadBytes(
   url: string,
@@ -118,7 +123,15 @@ export async function downloadBytes(
   const dir = new Directory(Paths.cache, 'dem');
   if (!dir.exists) dir.create({ intermediates: true });
   const dest = new File(dir, name);
-  if (dest.exists) dest.delete();
+  if (dest.exists) {
+    try {
+      const cached = await dest.bytes();
+      if (cached.length > 0) return cached; // cache hit
+    } catch {
+      /* unreadable cache entry — fall through and re-download */
+    }
+    dest.delete();
+  }
   await File.downloadFileAsync(url, dest, headers ? { headers } : undefined);
   return dest.bytes();
 }

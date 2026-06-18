@@ -5,10 +5,9 @@ import {
 } from '@core/geo/track';
 import type { TrackPoint } from '@core/models';
 import { formatDistance, formatElevation, formatSpeed } from '@lib/format';
-import { useSettingsStore } from '@state/settingsStore';
 import { Fragment, useMemo, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
-import { SegmentedButtons, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import Svg, {
   Circle,
   Defs,
@@ -81,9 +80,6 @@ export function ElevationProfile({
 }: Props) {
   const theme = useTheme();
   const profile = useMemo(() => buildElevationProfile(points), [points]);
-  const rawStyle = useSettingsStore((s) => s.elevationProfileStyle);
-  const style = rawStyle === 'pace' ? 'pace' : 'gradient'; // coerce legacy values
-  const setStyle = useSettingsStore((s) => s.set);
   const [width, setWidth] = useState(0);
   const [scrub, setScrub] = useState<number | null>(null);
   const [scrubAt, setScrubAt] = useState<TrackPointAt | null>(null);
@@ -108,23 +104,9 @@ export function ElevationProfile({
     return hi > lo ? { lo, hi } : null;
   }, [speeds]);
 
-  const styleSelector = (
-    <SegmentedButtons
-      value={style}
-      onValueChange={(v) => setStyle('elevationProfileStyle', v as 'gradient' | 'pace')}
-      density="small"
-      buttons={[
-        { value: 'gradient', label: 'Gradient', icon: 'chart-areaspline' },
-        { value: 'pace', label: 'Pace', icon: 'speedometer' },
-        { value: '3d', label: '3D', icon: 'video-3d', disabled: true },
-      ]}
-    />
-  );
-
   if (!profile.hasElevation) {
     return (
       <View style={styles.container}>
-        {styleSelector}
         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
           No elevation data was recorded for this trail.
         </Text>
@@ -180,8 +162,6 @@ export function ElevationProfile({
 
   return (
     <View style={styles.container}>
-      {styleSelector}
-
       <View style={styles.headerRow}>
         <Text variant="labelMedium" style={{ color: theme.colors.primary }}>
           ↑ {formatElevation(ascentM)}
@@ -226,40 +206,50 @@ export function ElevationProfile({
         {width > 0 && (
           <Svg width={width} height={CHART_HEIGHT}>
             <Defs>
+              {/* Pace fill: a horizontal gradient coloured by speed at each sample
+                  (red slow → green fast), painting the whole elevation area. */}
+              {speedRange && (
+                <LinearGradient
+                  id="paceFill"
+                  x1="0"
+                  y1="0"
+                  x2={width}
+                  y2="0"
+                  gradientUnits="userSpaceOnUse"
+                >
+                  {samples.map((s, i) => {
+                    const sp = speeds[i];
+                    const t =
+                      sp === undefined
+                        ? 0.5
+                        : (sp - speedRange.lo) / (speedRange.hi - speedRange.lo);
+                    return (
+                      <Stop
+                        key={`p${i}`}
+                        offset={s.distanceM / (totalDistanceM || 1)}
+                        stopColor={paceColor(t)}
+                        stopOpacity={0.92}
+                      />
+                    );
+                  })}
+                </LinearGradient>
+              )}
               <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
                 <Stop offset="0" stopColor={lineColor} stopOpacity={0.6} />
                 <Stop offset="1" stopColor={lineColor} stopOpacity={0.28} />
               </LinearGradient>
             </Defs>
 
-            {style === 'gradient' && <Path d={paths.area} fill="url(#elevFill)" />}
-            {style === 'gradient' && (
-              <Path d={paths.line} stroke={lineColor} strokeWidth={2.5} fill="none" />
-            )}
-
-            {/* Pace: colour each segment by its speed (red slow → green fast). */}
-            {style === 'pace' &&
-              speedRange &&
-              pts.slice(1).map((p, i) => {
-                const sp = speeds[i + 1] ?? speeds[i];
-                const t =
-                  sp === undefined ? 0.5 : (sp - speedRange.lo) / (speedRange.hi - speedRange.lo);
-                return (
-                  <Line
-                    key={`pace${i}`}
-                    x1={pts[i]!.x}
-                    y1={pts[i]!.y}
-                    x2={p.x}
-                    y2={p.y}
-                    stroke={paceColor(t)}
-                    strokeWidth={3}
-                    strokeLinecap="round"
-                  />
-                );
-              })}
-            {style === 'pace' && !speedRange && (
-              <Path d={paths.line} stroke={lineColor} strokeWidth={2.5} fill="none" />
-            )}
+            {/* Solid fill: pace gradient when speed is known, else the elevation
+                gradient — plus a crisp line tracing the profile edge. */}
+            <Path d={paths.area} fill={speedRange ? 'url(#paceFill)' : 'url(#elevFill)'} />
+            <Path
+              d={paths.line}
+              stroke={speedRange ? theme.colors.onSurface : lineColor}
+              strokeWidth={2}
+              strokeOpacity={speedRange ? 0.5 : 1}
+              fill="none"
+            />
 
             {/* Persistent cursor: where a new note will be anchored. */}
             {selectedDistanceM != null && (

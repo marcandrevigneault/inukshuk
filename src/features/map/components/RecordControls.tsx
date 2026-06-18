@@ -27,28 +27,36 @@ export function RecordControls({
 }: RecordControlsProps) {
   const theme = useTheme();
   const recording = status === 'recording';
-  const active = status !== 'idle';
 
-  const left =
-    status === 'idle'
-      ? { icon: 'record-circle', label: 'Record', onPress: onStart, color: theme.colors.tertiary }
-      : recording
-        ? { icon: 'pause', label: 'Pause', onPress: onPause, color: theme.colors.tertiary }
-        : { icon: 'play', label: 'Resume', onPress: onResume, color: theme.colors.primary };
+  // Idle: just a compact Record button — the waypoint half only matters once a
+  // recording is under way.
+  if (status === 'idle') {
+    return (
+      <FAB
+        icon="record-circle"
+        label="Record"
+        size="small"
+        onPress={onStart}
+        color={theme.colors.onTertiary}
+        style={{ backgroundColor: theme.colors.tertiary }}
+      />
+    );
+  }
 
+  const left = recording
+    ? { icon: 'pause', label: 'Pause', onPress: onPause, color: theme.colors.tertiary }
+    : { icon: 'play', label: 'Resume', onPress: onResume, color: theme.colors.primary };
   const wpColor = recording ? theme.colors.primary : theme.colors.onSurfaceDisabled;
 
   return (
     <View style={styles.row}>
-      {active && (
-        <FAB
-          icon="stop"
-          size="medium"
-          onPress={onStop}
-          color={theme.colors.onError}
-          style={{ backgroundColor: theme.colors.error }}
-        />
-      )}
+      <FAB
+        icon="stop"
+        size="medium"
+        onPress={onStop}
+        color={theme.colors.onError}
+        style={{ backgroundColor: theme.colors.error }}
+      />
       <View style={[styles.pill, { backgroundColor: theme.colors.elevation.level3 }]}>
         <Pressable
           style={styles.half}

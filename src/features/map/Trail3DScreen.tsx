@@ -66,7 +66,7 @@ export function Trail3DScreen({ trackId }: Props) {
       duration: 600,
       padding: { top: 160, right: 50, bottom: 320, left: 50 },
     });
-    const t = setTimeout(() => cam.setStop({ pitch: 58, duration: 700 }), 700);
+    const t = setTimeout(() => cam.setStop({ pitch: 65, duration: 700 }), 700);
     return () => clearTimeout(t);
   }, [mapLoaded, bbox]);
 

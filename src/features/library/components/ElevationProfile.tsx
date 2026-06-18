@@ -129,6 +129,22 @@ export function ElevationProfile({
   const xFor = (d: number) =>
     (Math.max(0, Math.min(d, totalDistanceM)) / (totalDistanceM || 1)) * width;
 
+  // Hachure ticks: faint vertical strokes from the curve to the baseline, spaced
+  // closer where the grade is steeper — a topographic-style steepness cue.
+  const ticks: { x: number; y: number }[] = [];
+  const BASE_SPACING = 11;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const seg = b.x - a.x;
+    if (seg <= 0) continue;
+    const steep = Math.min(5, Math.abs(b.y - a.y) / seg);
+    const spacing = BASE_SPACING / (1 + steep * 2.2);
+    for (let x = a.x; x < b.x; x += spacing) {
+      ticks.push({ x, y: a.y + (b.y - a.y) * ((x - a.x) / seg) });
+    }
+  }
+
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
   const onTouch = (e: GestureResponderEvent) => {
     if (width <= 0) return;
@@ -243,6 +259,20 @@ export function ElevationProfile({
             {/* Solid fill: pace gradient when speed is known, else the elevation
                 gradient — plus a crisp line tracing the profile edge. */}
             <Path d={paths.area} fill={speedRange ? 'url(#paceFill)' : 'url(#elevFill)'} />
+
+            {/* Steepness hachures: denser strokes on steeper ground. */}
+            {ticks.map((tk, i) => (
+              <Line
+                key={`hx${i}`}
+                x1={tk.x}
+                y1={tk.y}
+                x2={tk.x}
+                y2={CHART_HEIGHT}
+                stroke={theme.colors.onSurface}
+                strokeWidth={0.75}
+                opacity={0.13}
+              />
+            ))}
             <Path
               d={paths.line}
               stroke={speedRange ? theme.colors.onSurface : lineColor}

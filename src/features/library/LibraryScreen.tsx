@@ -612,28 +612,36 @@ export function LibraryScreen() {
             ]}
       </ScrollView>
 
-      <Portal>
-        <FAB.Group
-          open={importOpen}
-          visible
-          icon={importOpen ? 'close' : busy ? 'progress-upload' : 'plus'}
-          label="Import"
-          onStateChange={({ open }) => setImportOpen(open)}
-          actions={[
-            {
-              icon: 'map',
-              label: 'Georeferenced map (PDF)',
-              onPress: onImport,
-            },
-            {
-              icon: 'map-marker-path',
-              label: 'GPX trail',
-              onPress: onImportGpx,
-            },
-          ]}
-          style={{ paddingBottom: insets.bottom }}
+      <Menu
+        visible={importOpen}
+        onDismiss={() => setImportOpen(false)}
+        anchor={
+          <FAB
+            icon="plus"
+            label="Import"
+            loading={busy}
+            onPress={() => setImportOpen(true)}
+            style={[styles.fab, { bottom: insets.bottom + 16 }]}
+          />
+        }
+      >
+        <Menu.Item
+          leadingIcon="map"
+          title="Georeferenced map (PDF)"
+          onPress={() => {
+            setImportOpen(false);
+            void onImport();
+          }}
         />
-      </Portal>
+        <Menu.Item
+          leadingIcon="map-marker-path"
+          title="GPX trail"
+          onPress={() => {
+            setImportOpen(false);
+            void onImportGpx();
+          }}
+        />
+      </Menu>
 
       <Portal>
         <Dialog visible={newBundleVisible} onDismiss={() => setNewBundleVisible(false)}>

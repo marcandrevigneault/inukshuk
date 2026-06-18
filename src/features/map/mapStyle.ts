@@ -47,9 +47,9 @@ export function buildOsmStyle(tileUrl: string, terrain3d = false): StyleSpecific
       id: 'hillshade',
       type: 'hillshade',
       source: 'dem',
-      paint: { 'hillshade-exaggeration': 0.55 },
+      paint: { 'hillshade-exaggeration': 0.7 },
     });
-    style.terrain = { source: 'dem', exaggeration: 1.4 };
+    style.terrain = { source: 'dem', exaggeration: 2.2 };
   }
 
   return style;

@@ -161,7 +161,7 @@ export function MapScreen() {
 
   // Tilt the camera into a relief view when 3D is on, back to flat when off.
   useEffect(() => {
-    cameraRef.current?.setStop({ pitch: terrain3d ? 60 : 0, duration: 500 });
+    cameraRef.current?.setStop({ pitch: terrain3d ? 65 : 0, duration: 500 });
   }, [terrain3d]);
 
   const fitActiveMap = () => {

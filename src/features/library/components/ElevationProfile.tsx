@@ -227,8 +227,8 @@ export function ElevationProfile({
           <Svg width={width} height={CHART_HEIGHT}>
             <Defs>
               <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={lineColor} stopOpacity={0.45} />
-                <Stop offset="1" stopColor={lineColor} stopOpacity={0.04} />
+                <Stop offset="0" stopColor={lineColor} stopOpacity={0.6} />
+                <Stop offset="1" stopColor={lineColor} stopOpacity={0.28} />
               </LinearGradient>
             </Defs>
 

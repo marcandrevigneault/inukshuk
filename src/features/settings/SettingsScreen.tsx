@@ -1,6 +1,6 @@
 import { DEFAULT_TILE_URL, useSettingsStore } from '@state/settingsStore';
 import Constants from 'expo-constants';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { Appbar, Button, Divider, List, SegmentedButtons, Switch, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -75,6 +75,19 @@ export function SettingsScreen() {
 
         <List.Section>
           <List.Subheader>About</List.Subheader>
+          <View style={styles.logoWrap}>
+            <Image
+              source={require('../../../assets/icon.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text variant="titleMedium" style={styles.logoName}>
+              Inukshuk
+            </Text>
+            <Text variant="bodySmall" style={styles.logoTag}>
+              Offline trail navigation
+            </Text>
+          </View>
           <List.Item title="Version" description={`${Constants.expoConfig?.version ?? '1.0.0'}`} />
           <List.Item title="Maps & data" description="© OpenStreetMap contributors" />
           <View style={styles.note}>
@@ -92,4 +105,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   segment: { paddingHorizontal: 16, paddingBottom: 8 },
   note: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  logoWrap: { alignItems: 'center', paddingVertical: 12, gap: 2 },
+  logo: { width: 84, height: 84, borderRadius: 18 },
+  logoName: { fontWeight: '700', marginTop: 6 },
+  logoTag: { opacity: 0.7 },
 });

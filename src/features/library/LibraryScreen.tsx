@@ -1,7 +1,13 @@
 import { parseGpx } from '@core/geo/gpx';
 import type { TrackPoint } from '@core/models';
 import * as storage from '@data/storage';
-import { formatDistance, formatElevation, formatTimestamp } from '@lib/format';
+import {
+  formatDistance,
+  formatDuration,
+  formatElevation,
+  formatPace,
+  formatTimestamp,
+} from '@lib/format';
 import { useLibraryStore } from '@state/libraryStore';
 import { useMapStore } from '@state/mapStore';
 import * as Sharing from 'expo-sharing';
@@ -73,6 +79,7 @@ export function LibraryScreen() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggleSection = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
   const [cardMenu, setCardMenu] = useState<{ kind: 'map' | 'track'; id: string } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [newFolderVisible, setNewFolderVisible] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [renamingFolder, setRenamingFolder] = useState<{ id: string; name: string } | null>(null);
@@ -288,45 +295,135 @@ export function LibraryScreen() {
     </Card>
   );
 
-  const renderTrackCard = (t: (typeof tracks)[number]) => (
-    <Card key={t.id} style={styles.trackCard} mode="contained">
-      <Card.Title
-        title={t.name}
-        subtitle={formatTimestamp(t.startedAt)}
-        left={(p) => <List.Icon {...p} icon="map-marker-path" />}
+  // Full overflow menu for a trail: every secondary action plus folder/bundle
+  // membership, so the card itself only needs the profile-peek + this button.
+  const trackMenu = (t: (typeof tracks)[number]) => (
+    <Menu
+      visible={cardMenu?.kind === 'track' && cardMenu.id === t.id}
+      onDismiss={() => setCardMenu(null)}
+      anchor={
+        <IconButton
+          icon="dots-vertical"
+          size={22}
+          onPress={() => setCardMenu({ kind: 'track', id: t.id })}
+          accessibilityLabel="More options"
+        />
+      }
+    >
+      <Menu.Item
+        leadingIcon="map-outline"
+        title="View on map"
+        onPress={() => {
+          setCardMenu(null);
+          viewTrack(t.id);
+        }}
       />
-      <Card.Content style={styles.trackStats}>
-        <Text variant="bodyMedium">{formatDistance(t.stats.distanceM)}</Text>
-        <Text variant="bodyMedium">↑ {formatElevation(t.stats.ascentM)}</Text>
-        <Text variant="bodyMedium">↓ {formatElevation(t.stats.descentM)}</Text>
-      </Card.Content>
-      <Card.Actions>
-        <IconButton
-          icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
-          onPress={() => toggleElevation(t.id, t.fileUri)}
-        />
-        <IconButton icon="map-outline" onPress={() => viewTrack(t.id)} />
-        <IconButton
-          icon="note-edit-outline"
-          onPress={() => router.navigate(`/trail/${t.id}`)}
-          accessibilityLabel="Edit notes"
-        />
-        {itemMenu('track', t.id, t.folderId)}
-        <IconButton icon="share-variant" onPress={() => shareTrack(t.fileUri)} />
-        <IconButton icon="trash-can-outline" onPress={() => removeTrack(t.id)} />
-      </Card.Actions>
-      {expandedTrack === t.id &&
-        (trackPoints[t.id] ? (
-          <ElevationProfile
-            points={trackPoints[t.id]!}
-            ascentM={t.stats.ascentM}
-            descentM={t.stats.descentM}
+      <Menu.Item
+        leadingIcon="note-edit-outline"
+        title="Notes & PDF export"
+        onPress={() => {
+          setCardMenu(null);
+          router.navigate(`/trail/${t.id}`);
+        }}
+      />
+      <Menu.Item
+        leadingIcon="share-variant"
+        title="Share GPX"
+        onPress={() => {
+          setCardMenu(null);
+          shareTrack(t.fileUri);
+        }}
+      />
+      <Divider />
+      <Menu.Item disabled title="Move to folder" />
+      {folders.length === 0 ? (
+        <Menu.Item disabled title="No folders yet" />
+      ) : (
+        folders.map((f) => (
+          <Menu.Item
+            key={f.id}
+            leadingIcon={t.folderId === f.id ? 'folder-check' : 'folder-outline'}
+            title={f.name}
+            onPress={() => setItemFolder('track', t.id, t.folderId === f.id ? null : f.id)}
           />
-        ) : (
-          <ActivityIndicator style={styles.loader} />
-        ))}
-    </Card>
+        ))
+      )}
+      {t.folderId !== undefined && (
+        <Menu.Item
+          leadingIcon="folder-off-outline"
+          title="Remove from folder"
+          onPress={() => setItemFolder('track', t.id, null)}
+        />
+      )}
+      <Divider />
+      <Menu.Item disabled title="Add to bundle" />
+      {bundles.length === 0 ? (
+        <Menu.Item disabled title="No bundles yet" />
+      ) : (
+        bundles.map((b) => (
+          <Menu.Item
+            key={b.id}
+            leadingIcon={b.trackIds.includes(t.id) ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            title={b.name}
+            onPress={() => toggleBundleTrack(b.id, t.id)}
+          />
+        ))
+      )}
+      <Divider />
+      <Menu.Item
+        leadingIcon="trash-can-outline"
+        title="Delete trail"
+        onPress={() => {
+          setCardMenu(null);
+          removeTrack(t.id);
+        }}
+      />
+    </Menu>
   );
+
+  const renderTrackCard = (t: (typeof tracks)[number]) => {
+    const s = t.stats;
+    return (
+      <Card key={t.id} style={styles.trackCard} mode="contained">
+        <View style={styles.trackRow}>
+          <View style={styles.trackTitleCol}>
+            <Text variant="titleSmall" numberOfLines={1}>
+              {t.name}
+            </Text>
+            <Text variant="bodySmall" style={styles.hint}>
+              {formatTimestamp(t.startedAt)}
+            </Text>
+          </View>
+          <View style={styles.trackStatsCol}>
+            <Text variant="labelSmall">
+              {formatDistance(s.distanceM)} · ↑{formatElevation(s.ascentM)} ↓
+              {formatElevation(s.descentM)}
+            </Text>
+            <Text variant="labelSmall" style={styles.hint}>
+              {formatDuration(s.durationS)} · {formatPace(s.avgSpeedMps)}
+            </Text>
+          </View>
+          <IconButton
+            icon={expandedTrack === t.id ? 'chevron-up' : 'chart-areaspline'}
+            size={22}
+            onPress={() => toggleElevation(t.id, t.fileUri)}
+            accessibilityLabel="Elevation profile"
+          />
+          {trackMenu(t)}
+        </View>
+        {expandedTrack === t.id &&
+          (trackPoints[t.id] ? (
+            <ElevationProfile
+              points={trackPoints[t.id]!}
+              ascentM={t.stats.ascentM}
+              descentM={t.stats.descentM}
+            />
+          ) : (
+            <ActivityIndicator style={styles.loader} />
+          ))}
+      </Card>
+    );
+  };
 
   // Folder groups (cross-type: each folder shows its maps then its trails).
   const renderFolderGroups = () =>
@@ -377,8 +474,6 @@ export function LibraryScreen() {
           onPress={() => setNewFolderVisible(true)}
           accessibilityLabel="New folder"
         />
-        <Appbar.Action icon="map-marker-path" onPress={onImportGpx} disabled={busy} />
-        <Appbar.Action icon="file-pdf-box" onPress={onImport} disabled={busy} />
       </Appbar.Header>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}>
@@ -500,7 +595,7 @@ export function LibraryScreen() {
                 {collapsed.trails ? null : tracks.length === 0 ? (
                   <List.Item
                     title="No trails yet"
-                    description="Record one from the Map tab, or import a GPX file (route icon above)"
+                    description="Record one from the Map tab, or import a GPX file via the Import button"
                   />
                 ) : (
                   tracks.map(renderTrackCard)
@@ -509,13 +604,28 @@ export function LibraryScreen() {
             ]}
       </ScrollView>
 
-      <FAB
-        icon="plus"
-        label="Import map"
-        loading={busy}
-        onPress={onImport}
-        style={[styles.fab, { bottom: insets.bottom + 16 }]}
-      />
+      <Portal>
+        <FAB.Group
+          open={importOpen}
+          visible
+          icon={importOpen ? 'close' : busy ? 'progress-upload' : 'plus'}
+          label="Import"
+          onStateChange={({ open }) => setImportOpen(open)}
+          actions={[
+            {
+              icon: 'map',
+              label: 'Georeferenced map (PDF)',
+              onPress: onImport,
+            },
+            {
+              icon: 'map-marker-path',
+              label: 'GPX trail',
+              onPress: onImportGpx,
+            },
+          ]}
+          style={{ paddingBottom: insets.bottom }}
+        />
+      </Portal>
 
       <Portal>
         <Dialog visible={newBundleVisible} onDismiss={() => setNewBundleVisible(false)}>
@@ -593,6 +703,9 @@ const styles = StyleSheet.create({
   checkboxItem: { paddingVertical: 0, paddingHorizontal: 0 },
   trackCard: { marginHorizontal: 12, marginVertical: 6 },
   loader: { paddingVertical: 24 },
-  trackStats: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 24 },
+  trackRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 2 },
+  trackTitleCol: { flex: 1, paddingVertical: 8, paddingRight: 8 },
+  trackStatsCol: { alignItems: 'flex-end', paddingRight: 2 },
+  hint: { opacity: 0.7 },
   fab: { position: 'absolute', right: 16, borderRadius: 28 },
 });

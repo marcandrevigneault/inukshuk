@@ -2,6 +2,7 @@ import {
   formatDistance,
   formatDuration,
   formatElevation,
+  formatPace,
   formatSpeed,
   headingToCardinal,
 } from './format';
@@ -45,6 +46,18 @@ describe('formatSpeed', () => {
   it('converts m/s to km/h', () => {
     expect(formatSpeed(0)).toBe('0.0 km/h');
     expect(formatSpeed(10)).toBe('36.0 km/h');
+  });
+});
+
+describe('formatPace', () => {
+  it('converts m/s to min/km', () => {
+    expect(formatPace(1000 / 360)).toBe('6:00/km'); // 360 s/km
+    expect(formatPace(10 / 3.6)).toBe('6:00/km'); // 10 km/h
+  });
+  it('returns a dash for non-positive or implausible speeds', () => {
+    expect(formatPace(0)).toBe('—');
+    expect(formatPace(-1)).toBe('—');
+    expect(formatPace(0.01)).toBe('—');
   });
 });
 

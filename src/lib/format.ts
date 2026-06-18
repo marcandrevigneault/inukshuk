@@ -29,6 +29,18 @@ export function formatSpeed(mps: number): string {
   return `${(mps * 3.6).toFixed(1)} km/h`;
 }
 
+/** m/s -> "6:00/km" pace. Returns "—" for non-positive/implausible speeds. */
+export function formatPace(mps: number): string {
+  if (!Number.isFinite(mps) || mps <= 0.1) return '—';
+  const secPerKm = 1000 / mps;
+  if (secPerKm > 99 * 60) return '—';
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  const mm = s === 60 ? m + 1 : m;
+  const ss = s === 60 ? 0 : s;
+  return `${mm}:${ss.toString().padStart(2, '0')}/km`;
+}
+
 /** Heading degrees -> cardinal abbreviation (N, NE, …). */
 export function headingToCardinal(deg: number): string {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];

@@ -53,7 +53,7 @@
   </head>
   <body>
     <h1>Inukshuk — Privacy Policy</h1>
-    <p class="updated">Last updated: 15 June 2026</p>
+    <p class="updated">Last updated: 19 June 2026</p>
 
     <p>
       Inukshuk is a free, open-source app for offline trail navigation: it displays georeferenced
@@ -91,16 +91,32 @@
       data, because none of it ever leaves your device through us.
     </p>
 
-    <h2>Map tiles (the one external connection)</h2>
+    <h2>Network connections</h2>
     <p>
-      When the map shows the OpenStreetMap base layer, your device requests map image tiles directly
-      from the OpenStreetMap tile servers over HTTPS. As with any web request, that server receives
-      your device's IP address and the coordinates of the map area being viewed. This is handled by
-      OpenStreetMap, not by us, and is governed by the
-      <a href="https://wiki.osmfoundation.org/wiki/Privacy_Policy"
-        >OpenStreetMap Foundation privacy policy</a
-      >. The PDF maps you import are rendered entirely offline and involve no network connection.
+      Inukshuk works offline, but a few features fetch data directly from third-party servers over
+      HTTPS. In each case that server receives your device's IP address and the map area or tile
+      coordinates being requested — the normal information any web request carries. None of these
+      providers are operated by us, none receive an account or identity (the app has none), and the
+      PDF maps you import are rendered entirely offline with no network connection.
     </p>
+    <ul>
+      <li>
+        <strong>Base map tiles.</strong> The 2D map and the draped 3D terrain load image tiles from
+        <a href="https://wiki.osmfoundation.org/wiki/Privacy_Policy">OpenStreetMap</a> and from
+        <a href="https://www.esri.com/en-us/privacy/overview">Esri / ArcGIS Online</a>, depending on
+        the basemap you choose.
+      </li>
+      <li>
+        <strong>Elevation data.</strong> The 3D terrain view downloads public elevation tiles hosted
+        on Amazon Web Services (the open "Terrain Tiles" dataset) to build the relief mesh.
+      </li>
+      <li>
+        <strong>App updates.</strong> On launch the app asks
+        <a href="https://expo.dev/privacy">Expo's update service (EAS Update)</a> whether newer app
+        code is available. That request carries basic technical details such as the app version and
+        platform — not your location or any personal data.
+      </li>
+    </ul>
 
     <h2>Permissions</h2>
     <ul>

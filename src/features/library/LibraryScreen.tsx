@@ -634,36 +634,43 @@ export function LibraryScreen() {
             ]}
       </ScrollView>
 
-      <Menu
-        visible={importOpen}
-        onDismiss={() => setImportOpen(false)}
-        anchor={
-          <FAB
-            icon="plus"
-            label="Import"
-            loading={busy}
-            onPress={() => setImportOpen(true)}
-            style={[styles.fab, { bottom: insets.bottom + 16 }]}
+      {/* The FAB sits in normal flow inside an absolutely-positioned wrapper.
+          If the FAB itself is the absolutely-positioned child of paper's Menu
+          anchor (a zero-sized measuring View), Android clips touches to that
+          0x0 wrapper and the FAB renders but is untouchable. Anchoring the
+          absolute position on the wrapper gives it real bounds, so taps land. */}
+      <View style={[styles.fabWrap, { bottom: insets.bottom + 16 }]}>
+        <Menu
+          visible={importOpen}
+          onDismiss={() => setImportOpen(false)}
+          anchor={
+            <FAB
+              icon="plus"
+              label="Import"
+              loading={busy}
+              onPress={() => setImportOpen(true)}
+              style={styles.fab}
+            />
+          }
+        >
+          <Menu.Item
+            leadingIcon="map"
+            title="Georeferenced map (PDF)"
+            onPress={() => {
+              setImportOpen(false);
+              void onImport();
+            }}
           />
-        }
-      >
-        <Menu.Item
-          leadingIcon="map"
-          title="Georeferenced map (PDF)"
-          onPress={() => {
-            setImportOpen(false);
-            void onImport();
-          }}
-        />
-        <Menu.Item
-          leadingIcon="map-marker-path"
-          title="GPX trail"
-          onPress={() => {
-            setImportOpen(false);
-            void onImportGpx();
-          }}
-        />
-      </Menu>
+          <Menu.Item
+            leadingIcon="map-marker-path"
+            title="GPX trail"
+            onPress={() => {
+              setImportOpen(false);
+              void onImportGpx();
+            }}
+          />
+        </Menu>
+      </View>
 
       <Portal>
         <Dialog visible={newBundleVisible} onDismiss={() => setNewBundleVisible(false)}>
@@ -746,5 +753,6 @@ const styles = StyleSheet.create({
   trackTitleCol: { flex: 1, paddingVertical: 8, paddingRight: 8 },
   mapTitleCol: { flex: 1, paddingVertical: 8, paddingLeft: 10, paddingRight: 8 },
   trackStatsCol: { alignItems: 'flex-end', paddingRight: 2 },
-  fab: { position: 'absolute', right: 16, borderRadius: 28 },
+  fabWrap: { position: 'absolute', right: 16 },
+  fab: { borderRadius: 28 },
 });

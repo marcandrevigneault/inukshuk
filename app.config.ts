@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'Inukshuk',
   slug: 'inukshuk',
   owner: 'pythagorasv02',
-  version: '1.0.9',
+  version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'inukshuk',
@@ -30,9 +30,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'com.inukshuk.app',
-    // Explicit versionCode (appVersionSource is "local"): must exceed the highest
-    // already on Play (remote source had reached 33). Bump this each store build.
-    versionCode: 40,
+    // Display version resets to 1.0.0 for the first alpha release, but versionCode
+    // must keep monotonically increasing on Play (it can't reset) — vc39 (1.0.8)
+    // was already uploaded, so this stays ahead. Bump this each store build.
+    versionCode: 41,
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
       // Cream paper from the logo; the full-bleed foreground covers it, this only

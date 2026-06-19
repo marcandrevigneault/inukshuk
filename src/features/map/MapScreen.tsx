@@ -289,7 +289,15 @@ export function MapScreen() {
         >
           <Camera
             ref={cameraRef}
-            initialViewState={{ zoom: 14 }}
+            // Leaving 3D fully remounts <Map>/<Camera>; without a centre here
+            // MapLibre defaults to [0,0] (null island, "middle of the Atlantic").
+            // Seed it from the live location so we re-open on the user's position.
+            initialViewState={{
+              zoom: 14,
+              ...(location
+                ? { center: [location.longitude, location.latitude] as [number, number] }
+                : {}),
+            }}
             trackUserLocation={followUser ? 'default' : undefined}
             onTrackUserLocationChange={(e) => {
               if (e.nativeEvent.trackUserLocation === null) setFollowUser(false);

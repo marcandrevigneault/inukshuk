@@ -39,3 +39,15 @@ it('addTrack seeds initial notes with ids', () => {
   expect(saved?.notes?.[0]?.distanceM).toBe(100);
   expect(saved?.notes?.[0]?.id).toBeTruthy();
 });
+
+it('addTrack without notes leaves notes key absent', () => {
+  useLibraryStore.getState().addTrack({ ...track, id: 't2' }, 'file://t2.gpx');
+  const saved = useLibraryStore.getState().tracks.find((t) => t.id === 't2');
+  expect(saved).not.toHaveProperty('notes');
+});
+
+it('addTrack with empty notes leaves notes key absent', () => {
+  useLibraryStore.getState().addTrack({ ...track, id: 't3' }, 'file://t3.gpx', []);
+  const saved = useLibraryStore.getState().tracks.find((t) => t.id === 't3');
+  expect(saved).not.toHaveProperty('notes');
+});

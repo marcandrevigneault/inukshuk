@@ -37,6 +37,7 @@ import { fetchBasemapTexture, fetchHeightmap, type Basemap, type Heightmap } fro
 import { exportTrailPdf } from '../library/exportTrailPdf';
 import { buildTerrain, type TerrainBuild } from './terrainScene';
 import { ElevationProfile } from '../library/components/ElevationProfile';
+import { useTimedSnackbar } from '../common/useTimedSnackbar';
 
 interface Props {
   trackId: string;
@@ -102,7 +103,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const [draftPhoto, setDraftPhoto] = useState<string | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [snack, setSnack] = useState<string | null>(null);
+  const { message: snack, show: showSnack, dismiss: dismissSnack } = useTimedSnackbar(2500);
 
   const orbit = useRef({ theta: 0.6, phi: 0.85, radius: 4, center: new THREE.Vector3() });
   const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
@@ -280,7 +281,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
       groupRef.current = built.group;
       projectRef.current = built.project;
     } catch {
-      setSnack('Could not load that basemap');
+      showSnack('Could not load that basemap');
     }
     setSwitching(false);
   };
@@ -290,7 +291,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
       if (fromCamera) {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) {
-          setSnack('Camera permission denied');
+          showSnack('Camera permission denied');
           return;
         }
       }
@@ -299,7 +300,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
       if (!result.canceled && result.assets[0]) setDraftPhoto(result.assets[0].uri);
     } catch {
-      setSnack('Could not attach photo');
+      showSnack('Could not attach photo');
     }
   };
 
@@ -324,7 +325,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
         updateTrackNote(trackId, editing.noteId, text, photo);
       }
     } catch {
-      setSnack('Could not save the photo');
+      showSnack('Could not save the photo');
     }
     setEditing(null);
     setDraft('');
@@ -337,7 +338,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
     try {
       await exportTrailPdf(track, points);
     } catch {
-      setSnack('Could not export PDF');
+      showSnack('Could not export PDF');
     }
     setExporting(false);
   };
@@ -492,7 +493,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
                     icon="trash-can-outline"
                     onPress={() => {
                       removeTrackNote(trackId, n.id);
-                      setSnack('Note deleted');
+                      showSnack('Note deleted');
                     }}
                   />
                 </View>
@@ -563,7 +564,11 @@ export function Trail3DGLScreen({ trackId }: Props) {
         </Dialog>
       </Portal>
 
-      <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={2500}>
+      <Snackbar
+        visible={snack !== null}
+        onDismiss={dismissSnack}
+        duration={Number.POSITIVE_INFINITY}
+      >
         {snack ?? ''}
       </Snackbar>
     </View>

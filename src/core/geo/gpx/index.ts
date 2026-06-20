@@ -15,10 +15,25 @@ export interface GpxMetadata {
   creator?: string;
 }
 
+export interface GpxWaypoint {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  description?: string;
+  symbol?: string;
+  altitude?: number;
+  /** Epoch milliseconds of the waypoint's <time>, if present. */
+  time?: number;
+}
+
 export interface GpxDocument {
   metadata: GpxMetadata;
   /** All track/route/waypoint points, flattened in document order. */
   points: TrackPoint[];
+  /** Standalone <wpt> markers, preserved with their labels. */
+  waypoints: GpxWaypoint[];
+  /** True when `points` came from <trk>/<rte> (not the <wpt> fallback). */
+  hasTrackOrRoutePoints: boolean;
 }
 
 const GPX_NS = 'http://www.topografix.com/GPX/1/1';
@@ -130,6 +145,24 @@ const parsePoint = (raw: AnyRecord): TrackPoint | undefined => {
   return point;
 };
 
+const parseWaypoint = (raw: AnyRecord): GpxWaypoint | undefined => {
+  const lat = toNum(raw[`${ATTR_PREFIX}lat`]);
+  const lon = toNum(raw[`${ATTR_PREFIX}lon`]);
+  if (lat === undefined || lon === undefined) return undefined;
+  const wpt: GpxWaypoint = { latitude: lat, longitude: lon };
+  const name = textOf(raw['name']);
+  if (name !== undefined) wpt.name = name;
+  const desc = textOf(raw['desc']) ?? textOf(raw['description']);
+  if (desc !== undefined) wpt.description = desc;
+  const sym = textOf(raw['sym']);
+  if (sym !== undefined) wpt.symbol = sym;
+  const altitude = toNum(textOf(raw['ele']));
+  if (altitude !== undefined) wpt.altitude = altitude;
+  const time = isoToEpochMs(textOf(raw['time']));
+  if (time !== undefined) wpt.time = time;
+  return wpt;
+};
+
 /**
  * Parse a GPX XML string into a flattened document. Tolerant of missing
  * ele/time. Throws only when the input has no recognizable <gpx> root.
@@ -180,24 +213,32 @@ export function parseGpx(xml: string): GpxDocument {
       }
     }
   }
-
-  // Fallbacks only when there were no track points at all.
-  if (points.length === 0) {
-    for (const rte of asArray<AnyRecord>(gpx['rte'])) {
-      for (const pt of asArray<AnyRecord>(rte['rtept'])) {
-        const parsedPt = parsePoint(pt);
-        if (parsedPt) points.push(parsedPt);
-      }
-    }
-  }
-  if (points.length === 0) {
-    for (const pt of asArray<AnyRecord>(gpx['wpt'])) {
+  for (const rte of asArray<AnyRecord>(gpx['rte'])) {
+    if (points.length > 0) break;
+    for (const pt of asArray<AnyRecord>(rte['rtept'])) {
       const parsedPt = parsePoint(pt);
       if (parsedPt) points.push(parsedPt);
     }
   }
+  const hasTrackOrRoutePoints = points.length > 0;
 
-  return { metadata, points };
+  // Always preserve <wpt> markers with their labels.
+  const waypoints: GpxWaypoint[] = [];
+  for (const pt of asArray<AnyRecord>(gpx['wpt'])) {
+    const w = parseWaypoint(pt);
+    if (w) waypoints.push(w);
+  }
+
+  // Back-compat: a waypoint-only file still yields a "track" from its points.
+  if (points.length === 0) {
+    for (const w of waypoints) {
+      const pt: TrackPoint = { latitude: w.latitude, longitude: w.longitude, time: w.time ?? 0 };
+      if (w.altitude !== undefined) pt.altitude = w.altitude;
+      points.push(pt);
+    }
+  }
+
+  return { metadata, points, waypoints, hasTrackOrRoutePoints };
 }
 
 /**

@@ -1,12 +1,13 @@
 import type { Track } from '@core/models';
 import { parseGpx } from '@core/geo/gpx';
-import { buildImportedTrack } from '@core/geo/track';
+import { buildImportedTrack, snapWaypointsToNotes, type ImportedNote } from '@core/geo/track';
 import * as storage from '@data/storage';
 import * as DocumentPicker from 'expo-document-picker';
 
 export interface ImportedTrack {
   track: Track;
   fileUri: string;
+  notes: ImportedNote[];
 }
 
 export type BulkGpxImportResult =
@@ -19,7 +20,7 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
   const id = storage.newId();
   const fileUri = await storage.importGpx(asset.uri, id);
   const text = await storage.readFileText(fileUri);
-  const { metadata, points } = parseGpx(text);
+  const { metadata, points, waypoints, hasTrackOrRoutePoints } = parseGpx(text);
   if (points.length === 0) {
     storage.deleteFileAt(fileUri);
     throw new Error('No track points');
@@ -31,7 +32,8 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
     fallbackName: asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
     fallbackTime: Date.now(),
   });
-  return { track, fileUri };
+  const notes = hasTrackOrRoutePoints ? snapWaypointsToNotes(points, waypoints) : [];
+  return { track, fileUri, notes };
 }
 
 /**

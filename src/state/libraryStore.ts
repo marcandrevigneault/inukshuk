@@ -7,6 +7,7 @@ import type {
   TrackNote,
   TrackSummary,
 } from '@core/models';
+import type { ImportedNote } from '@core/geo/track';
 import { bundleMapActivePages, pruneBundles, toggleId } from '@core/library/bundles';
 import { removeNoteById } from '@core/library/notes';
 import * as storage from '@data/storage';
@@ -56,7 +57,7 @@ interface LibraryState extends LibraryIndex {
   setActiveMap: (id: string | null) => void;
   /** Toggle whether a georeferenced page of a map is shown as an overlay. */
   toggleMapPage: (id: string, pageIndex: number) => void;
-  addTrack: (track: Track, fileUri: string) => void;
+  addTrack: (track: Track, fileUri: string, notes?: readonly ImportedNote[]) => void;
   removeTrack: (id: string) => void;
   // Trail annotations (GPX editor) — anchored by distance along the trail.
   addTrackNote: (trackId: string, distanceM: number, text: string, photoUri?: string) => string;
@@ -179,8 +180,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       return next;
     }),
 
-  addTrack: (track, fileUri) =>
+  addTrack: (track, fileUri, notes) =>
     set((s) => {
+      const seeded =
+        notes && notes.length > 0
+          ? notes.map((n) => ({
+              id: storage.newId(),
+              distanceM: Math.max(0, n.distanceM),
+              text: n.text.trim(),
+              createdAt: Date.now(),
+            }))
+          : undefined;
       const summary: TrackSummary = {
         id: track.id,
         name: track.name,
@@ -188,6 +198,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         endedAt: track.endedAt,
         stats: track.stats,
         fileUri,
+        ...(seeded ? { notes: seeded } : {}),
       };
       const next = { ...s, tracks: [summary, ...s.tracks] };
       persist(next);

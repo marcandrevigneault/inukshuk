@@ -108,7 +108,9 @@ export function LibraryScreen() {
     const result = await pickAndImportGpxFiles();
     setBusy(false);
     if (result.kind === 'imported') {
-      [...result.items].reverse().forEach(({ track, fileUri }) => addTrack(track, fileUri));
+      [...result.items]
+        .reverse()
+        .forEach(({ track, fileUri, notes }) => addTrack(track, fileUri, notes));
       const n = result.items.length;
       setSnack(
         `Imported ${n} trail${n === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}`,

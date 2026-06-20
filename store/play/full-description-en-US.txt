@@ -1,0 +1,48 @@
+Inukshuk is a free, open-source trail companion that works where the signal doesn't. Bring your own georeferenced maps, see your live GPS position on them, and record every outing — all completely offline, with nothing tracked and no account required.
+
+Built for hikers, skiers, paddlers, hunters and backcountry explorers who already have the maps they trust and just want them to come alive in their pocket.
+
+WHY INUKSHUK
+
+• 100% free — no paywall, no premium tier, no ads, ever.
+• Open source (MIT licensed) — anyone can read the code, audit it, and contribute.
+• Community-driven — features and plugin ideas come from the people who actually hit the trails.
+• Private by design — your location never leaves your phone. No analytics, no tracking, no sign-up.
+
+BRING YOUR OWN MAPS
+
+Import georeferenced PDF maps — park maps, topographic sheets, ski-hill trail maps, marine charts, anything with embedded geo-coordinates — and Inukshuk overlays your live GPS position right on top. The map you already rely on becomes a live navigation tool.
+
+WORKS WITH NO SIGNAL
+
+Everything runs on your device. When you wander past the edge of your imported map, an OpenStreetMap base layer fills in so you're never looking at a blank screen. No data plan needed on the trail.
+
+REAL 3D TERRAIN
+
+See the landscape around you in true 3D relief, with your saved trails and live recording draped over the mountains — a genuinely useful way to read the terrain ahead, not just a gimmick.
+
+RECORD AND SHARE YOUR ROUTES
+
+Hit Record to capture your trail with live time, distance, and elevation gain/loss. Every recording is saved and can be shared as a standard GPX file you can open anywhere. Import GPX trails from friends or the web just as easily.
+
+ELEVATION PROFILES, NOTES & PHOTOS
+
+Every recorded trail gets a pace-and-grade elevation profile you can scrub through point by point. Drop notes and attach photos along the route to remember the lookout, the tricky crossing, or the perfect campsite.
+
+ORGANIZE YOUR LIBRARY
+
+Keep your maps and trails tidy with folders, and group the ones you need for a trip into a bundle you can activate in a single tap.
+
+FOREGROUND-ONLY LOCATION
+
+Inukshuk only uses your location while the app is open and on screen — nothing runs in the background, nothing drains your battery behind your back.
+
+HELP SHAPE IT
+
+Inukshuk gets better when its community speaks up. Propose a feature, pitch a plugin idea, report a bug, or contribute code on GitHub:
+https://github.com/marcandrevigneault/inukshuk
+
+Learn more: https://marcandrevigneault.github.io/inukshuk/
+Privacy policy: https://marcandrevigneault.github.io/inukshuk/privacy/
+
+Your maps. Your trails. Off the grid.

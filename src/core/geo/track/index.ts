@@ -13,6 +13,8 @@ export { haversineMeters };
 export { buildElevationProfile } from './elevationProfile';
 export type { ElevationProfile, ElevationSample } from './elevationProfile';
 export { buildImportedTrack } from './importTrack';
+export { snapWaypointsToNotes } from './snapWaypoints';
+export type { ImportedNote } from './snapWaypoints';
 export { interpolateTrackAtDistance } from './interpolate';
 export type { TrackPointAt } from './interpolate';
 

@@ -51,3 +51,6 @@ builds/
 
 # local secret material — never commit
 .expo-token.local
+
+# Subagent-driven-development scratch
+.superpowers/

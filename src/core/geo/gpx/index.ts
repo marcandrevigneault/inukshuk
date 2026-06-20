@@ -21,7 +21,6 @@ export interface GpxWaypoint {
   name?: string;
   description?: string;
   symbol?: string;
-  altitude?: number;
   /** Epoch milliseconds of the waypoint's <time>, if present. */
   time?: number;
 }
@@ -156,8 +155,6 @@ const parseWaypoint = (raw: AnyRecord): GpxWaypoint | undefined => {
   if (desc !== undefined) wpt.description = desc;
   const sym = textOf(raw['sym']);
   if (sym !== undefined) wpt.symbol = sym;
-  const altitude = toNum(textOf(raw['ele']));
-  if (altitude !== undefined) wpt.altitude = altitude;
   const time = isoToEpochMs(textOf(raw['time']));
   if (time !== undefined) wpt.time = time;
   return wpt;
@@ -231,10 +228,9 @@ export function parseGpx(xml: string): GpxDocument {
 
   // Back-compat: a waypoint-only file still yields a "track" from its points.
   if (points.length === 0) {
-    for (const w of waypoints) {
-      const pt: TrackPoint = { latitude: w.latitude, longitude: w.longitude, time: w.time ?? 0 };
-      if (w.altitude !== undefined) pt.altitude = w.altitude;
-      points.push(pt);
+    for (const pt of asArray<AnyRecord>(gpx['wpt'])) {
+      const parsedPt = parsePoint(pt);
+      if (parsedPt) points.push(parsedPt);
     }
   }
 

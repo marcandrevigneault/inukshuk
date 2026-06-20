@@ -14,7 +14,7 @@ Three related improvements to how GPX trails are imported and viewed:
 3. **Open a `.gpx` file directly with Inukshuk** (Android file association +
    import-on-open).
 
-Built in dependency order **Phase 1 → 2 → 3**: the note *data* must exist before
+Built in dependency order **Phase 1 → 2 → 3**: the note _data_ must exist before
 it can be displayed (Phase 1); the 2D/3D views both render that data (Phase 2);
 opening a file then lands a trail whose notes already display (Phase 3).
 
@@ -23,7 +23,7 @@ opening a file then lands a trail whose notes already display (Phase 3).
 - **GPX-only file association** (not PDF) — GPX is effectively unique to trail
   apps; registering PDF would put Inukshuk in every PDF's "Open with" menu.
 - **Notes use the existing `TrackNote` model** (`{ id, distanceM, text,
-  createdAt, photoUri? }`, anchored by distance along the trail). A GPX `<wpt>`
+createdAt, photoUri? }`, anchored by distance along the trail). A GPX `<wpt>`
   becomes a `TrackNote` by snapping it to the nearest track point. No new data
   model; notes already render on the elevation profile and persist in the library
   index.
@@ -42,13 +42,13 @@ importing a GPX with marked points loses them.
 
 - **core/geo/gpx** — extend `parseGpx` to also return
   `waypoints: GpxWaypoint[]` (`{ latitude, longitude, name?, description?,
-  symbol?, time? }`). Existing `points` / fallback behavior unchanged. *(unit
-  tested)*
+symbol?, time? }`). Existing `points` / fallback behavior unchanged. _(unit
+  tested)_
 - **core/geo/track** — add `snapWaypointsToNotes(points, waypoints)`: for each
   waypoint, find the nearest track point and its cumulative distance, producing
   `{ distanceM, text }` (text = `name`, with `desc` appended when present).
   Waypoints farther than a threshold from the track are still included, snapped
-  to the closest point. *(unit tested — the core of this phase)*
+  to the closest point. _(unit tested — the core of this phase)_
 - **import flow** (`importGpx.ts` + `libraryStore`) — on import, convert parsed
   waypoints to notes and seed them on the new track (extend `addTrack` to accept
   optional initial notes, or apply them immediately after). Existing
@@ -58,7 +58,7 @@ importing a GPX with marked points loses them.
   already shows notes, so that comes for free.
 
 **Decision:** scope rendering to the **trail view** (2D + 3D). Showing the same
-note pins on the *main* map is a natural follow-up but is out of scope for v1 to
+note pins on the _main_ map is a natural follow-up but is out of scope for v1 to
 keep this focused.
 
 **Tested:** `parseGpx` waypoint extraction and `snapWaypointsToNotes` get
@@ -113,7 +113,7 @@ no way to save-then-import.
 - **Incoming-file hook** (`src/features/share/useIncomingFile.ts`, mounted in
   `app/_layout.tsx`): uses `expo-linking` (`getInitialURL` for cold start + a
   `url` listener for warm) to receive the URI; a **pure** helper decides
-  "is this a GPX + what name?" (*unit tested*); then imports → adds to library →
+  "is this a GPX + what name?" (_unit tested_); then imports → adds to library →
   navigates to the Library tab → shows a root-level snackbar (or an error if the
   file has no track points).
 - **Risk verified first:** opened files arrive as Android `content://` URIs (the

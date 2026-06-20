@@ -4,7 +4,7 @@
 
 **Goal:** Preserve GPX waypoints as trail notes, add a 2D/3D toggle to the trail view, and let users open a `.gpx` file directly with Inukshuk.
 
-**Architecture:** All parsing/snapping stays pure in `src/core` (unit-tested); the Zustand stores and `src/features` screens consume it. Phase 1 lands note *data* (visible immediately in the elevation profile + notes list); Phase 2 renders note pins in a new 2D trail view and the existing 3D view behind a remembered toggle; Phase 3 adds native file association plus a root hook that imports an opened file.
+**Architecture:** All parsing/snapping stays pure in `src/core` (unit-tested); the Zustand stores and `src/features` screens consume it. Phase 1 lands note _data_ (visible immediately in the elevation profile + notes list); Phase 2 renders note pins in a new 2D trail view and the existing 3D view behind a remembered toggle; Phase 3 adds native file association plus a root hook that imports an opened file.
 
 **Tech Stack:** Expo SDK 56, React Native 0.85, React 19, TypeScript (strict + noUncheckedIndexedAccess), Zustand, MapLibre RN, expo-gl + three, expo-linking, fast-xml-parser, Jest.
 
@@ -23,6 +23,7 @@
 ## File Structure
 
 **Phase 1 — waypoints → notes (pure data)**
+
 - Modify `src/core/geo/gpx/index.ts` — add `GpxWaypoint`, `GpxDocument.waypoints`, `GpxDocument.hasTrackOrRoutePoints`.
 - Create `src/core/geo/track/snapWaypoints.ts` — `ImportedNote`, `snapWaypointsToNotes()`.
 - Modify `src/core/geo/track/index.ts` — re-export the above.
@@ -31,11 +32,13 @@
 - Modify `src/features/library/LibraryScreen.tsx` — pass `notes` to `addTrack`.
 
 **Phase 2 — 2D/3D toggle**
+
 - Modify `src/state/settingsStore.ts` — `trailViewMode: '2d' | '3d'`.
 - Create `src/features/map/Trail2DView.tsx` — MapLibre trail + note pins.
 - Modify `src/features/map/Trail3DGLScreen.tsx` — toggle + branch + 3D note pins.
 
 **Phase 3 — open a `.gpx`**
+
 - Modify `app.config.ts` — `android.intentFilters` + `ios.infoPlist` doc type.
 - Create `src/core/share/incomingFile.ts` — `classifyIncomingUri()`.
 - Modify `src/data/storage.ts` — `readTextFromUri()`, `writeGpxText()`.
@@ -52,11 +55,14 @@
 ### Task 1: Parse `<wpt>` waypoints in `parseGpx`
 
 **Files:**
+
 - Modify: `src/core/geo/gpx/index.ts`
 - Test: `src/core/geo/gpx/index.test.ts` (add cases to the existing file)
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export interface GpxWaypoint {
     latitude: number;
@@ -74,6 +80,7 @@
 - [ ] **Step 1: Write the failing test**
 
 Add to `src/core/geo/gpx/index.test.ts`:
+
 ```ts
 describe('parseGpx waypoints', () => {
   it('extracts <wpt> name/desc/sym separately from track points', () => {
@@ -89,7 +96,13 @@ describe('parseGpx waypoints', () => {
     expect(doc.points).toHaveLength(2);
     expect(doc.hasTrackOrRoutePoints).toBe(true);
     expect(doc.waypoints).toEqual([
-      { latitude: 46.81, longitude: -71.21, name: 'Lookout', description: 'great view', symbol: 'Summit' },
+      {
+        latitude: 46.81,
+        longitude: -71.21,
+        name: 'Lookout',
+        description: 'great view',
+        symbol: 'Summit',
+      },
     ]);
   });
 
@@ -115,6 +128,7 @@ Expected: FAIL (`waypoints`/`hasTrackOrRoutePoints` undefined).
 In `src/core/geo/gpx/index.ts`:
 
 Add the interface after `GpxMetadata` (around line 16):
+
 ```ts
 export interface GpxWaypoint {
   latitude: number;
@@ -128,6 +142,7 @@ export interface GpxWaypoint {
 ```
 
 Extend `GpxDocument` (around line 18):
+
 ```ts
 export interface GpxDocument {
   metadata: GpxMetadata;
@@ -141,6 +156,7 @@ export interface GpxDocument {
 ```
 
 Add a waypoint parser after `parsePoint` (around line 131):
+
 ```ts
 const parseWaypoint = (raw: AnyRecord): GpxWaypoint | undefined => {
   const lat = toNum(raw[`${ATTR_PREFIX}lat`]);
@@ -161,39 +177,41 @@ const parseWaypoint = (raw: AnyRecord): GpxWaypoint | undefined => {
 
 In `parseGpx`, replace the `const points: TrackPoint[] = [];` block and the two
 fallbacks (lines 173-200) with:
-```ts
-  const points: TrackPoint[] = [];
 
-  for (const trk of asArray<AnyRecord>(gpx['trk'])) {
-    for (const seg of asArray<AnyRecord>(trk['trkseg'])) {
-      for (const pt of asArray<AnyRecord>(seg['trkpt'])) {
-        const parsedPt = parsePoint(pt);
-        if (parsedPt) points.push(parsedPt);
-      }
-    }
-  }
-  for (const rte of asArray<AnyRecord>(gpx['rte'])) {
-    if (points.length > 0) break;
-    for (const pt of asArray<AnyRecord>(rte['rtept'])) {
+```ts
+const points: TrackPoint[] = [];
+
+for (const trk of asArray<AnyRecord>(gpx['trk'])) {
+  for (const seg of asArray<AnyRecord>(trk['trkseg'])) {
+    for (const pt of asArray<AnyRecord>(seg['trkpt'])) {
       const parsedPt = parsePoint(pt);
       if (parsedPt) points.push(parsedPt);
     }
   }
-  const hasTrackOrRoutePoints = points.length > 0;
-
-  // Always preserve <wpt> markers with their labels.
-  const waypoints: GpxWaypoint[] = [];
-  for (const pt of asArray<AnyRecord>(gpx['wpt'])) {
-    const w = parseWaypoint(pt);
-    if (w) waypoints.push(w);
+}
+for (const rte of asArray<AnyRecord>(gpx['rte'])) {
+  if (points.length > 0) break;
+  for (const pt of asArray<AnyRecord>(rte['rtept'])) {
+    const parsedPt = parsePoint(pt);
+    if (parsedPt) points.push(parsedPt);
   }
+}
+const hasTrackOrRoutePoints = points.length > 0;
 
-  // Back-compat: a waypoint-only file still yields a "track" from its points.
-  if (points.length === 0) {
-    for (const w of waypoints) points.push({ latitude: w.latitude, longitude: w.longitude, time: w.time ?? 0 });
-  }
+// Always preserve <wpt> markers with their labels.
+const waypoints: GpxWaypoint[] = [];
+for (const pt of asArray<AnyRecord>(gpx['wpt'])) {
+  const w = parseWaypoint(pt);
+  if (w) waypoints.push(w);
+}
 
-  return { metadata, points, waypoints, hasTrackOrRoutePoints };
+// Back-compat: a waypoint-only file still yields a "track" from its points.
+if (points.length === 0) {
+  for (const w of waypoints)
+    points.push({ latitude: w.latitude, longitude: w.longitude, time: w.time ?? 0 });
+}
+
+return { metadata, points, waypoints, hasTrackOrRoutePoints };
 ```
 
 - [ ] **Step 4: Run tests**
@@ -215,15 +233,21 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: Snap waypoints to distance-anchored notes
 
 **Files:**
+
 - Create: `src/core/geo/track/snapWaypoints.ts`
 - Test: `src/core/geo/track/snapWaypoints.test.ts`
 - Modify: `src/core/geo/track/index.ts` (re-export)
 
 **Interfaces:**
+
 - Consumes: `GpxWaypoint` from `@core/geo/gpx`; `haversineMeters` from `@core/geo/geomath`; `TrackPoint` from `@core/models`.
 - Produces:
+
   ```ts
-  export interface ImportedNote { distanceM: number; text: string; }
+  export interface ImportedNote {
+    distanceM: number;
+    text: string;
+  }
   export function snapWaypointsToNotes(
     points: readonly TrackPoint[],
     waypoints: readonly GpxWaypoint[],
@@ -233,6 +257,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test**
 
 Create `src/core/geo/track/snapWaypoints.test.ts`:
+
 ```ts
 import { snapWaypointsToNotes } from './snapWaypoints';
 import type { TrackPoint } from '@core/models';
@@ -277,6 +302,7 @@ Expected: FAIL (module not found).
 - [ ] **Step 3: Implement**
 
 Create `src/core/geo/track/snapWaypoints.ts`:
+
 ```ts
 import type { TrackPoint } from '@core/models';
 import type { GpxWaypoint } from '@core/geo/gpx';
@@ -331,6 +357,7 @@ export function snapWaypointsToNotes(
 ```
 
 Add to `src/core/geo/track/index.ts` (after the `buildImportedTrack` export, line 15):
+
 ```ts
 export { snapWaypointsToNotes } from './snapWaypoints';
 export type { ImportedNote } from './snapWaypoints';
@@ -355,11 +382,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: Seed notes on import (store + import flow + screen)
 
 **Files:**
+
 - Modify: `src/state/libraryStore.ts` (interface line 59 + impl line 182-195)
 - Modify: `src/features/library/importGpx.ts`
 - Modify: `src/features/library/LibraryScreen.tsx` (`onImportGpx`, ~line 110-111)
 
 **Interfaces:**
+
 - Consumes: `snapWaypointsToNotes`, `ImportedNote` from `@core/geo/track`.
 - Produces:
   - `addTrack: (track: Track, fileUri: string, notes?: readonly ImportedNote[]) => void`
@@ -368,6 +397,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Write the failing test**
 
 Create `src/state/libraryStore.notes.test.ts`:
+
 ```ts
 import { useLibraryStore } from './libraryStore';
 import type { Track } from '@core/models';
@@ -379,17 +409,30 @@ jest.mock('@data/storage', () => ({
 }));
 
 const track: Track = {
-  id: 't1', name: 'T', startedAt: 1, status: 'finished',
+  id: 't1',
+  name: 'T',
+  startedAt: 1,
+  status: 'finished',
   points: [{ latitude: 0, longitude: 0, time: 0 }],
-  stats: { distanceM: 0, ascentM: 0, descentM: 0, durationS: 0, movingTimeS: 0,
-    avgSpeedMps: 0, maxSpeedMps: 0, minAltitudeM: undefined, maxAltitudeM: undefined,
-    bbox: undefined, pointCount: 1 },
+  stats: {
+    distanceM: 0,
+    ascentM: 0,
+    descentM: 0,
+    durationS: 0,
+    movingTimeS: 0,
+    avgSpeedMps: 0,
+    maxSpeedMps: 0,
+    minAltitudeM: undefined,
+    maxAltitudeM: undefined,
+    bbox: undefined,
+    pointCount: 1,
+  },
 };
 
 it('addTrack seeds initial notes with ids', () => {
-  useLibraryStore.getState().addTrack(track, 'file://t1.gpx', [
-    { distanceM: 100, text: 'Lookout' },
-  ]);
+  useLibraryStore
+    .getState()
+    .addTrack(track, 'file://t1.gpx', [{ distanceM: 100, text: 'Lookout' }]);
   const saved = useLibraryStore.getState().tracks.find((t) => t.id === 't1');
   expect(saved?.notes).toHaveLength(1);
   expect(saved?.notes?.[0]?.text).toBe('Lookout');
@@ -406,14 +449,19 @@ Expected: FAIL (notes not seeded — `addTrack` ignores the 3rd arg).
 - [ ] **Step 3: Implement**
 
 `src/state/libraryStore.ts` — update the interface (line 59):
+
 ```ts
   addTrack: (track: Track, fileUri: string, notes?: readonly ImportedNote[]) => void;
 ```
+
 Add the import near the other `@core` imports at the top:
+
 ```ts
 import type { ImportedNote } from '@core/geo/track';
 ```
+
 Replace the `addTrack` implementation (lines 182-195) with:
+
 ```ts
   addTrack: (track, fileUri, notes) =>
     set((s) => {
@@ -443,10 +491,13 @@ Replace the `addTrack` implementation (lines 182-195) with:
 
 `src/features/library/importGpx.ts` — add imports and thread notes through.
 Replace lines 1-3 imports block top with the added import:
+
 ```ts
 import { buildImportedTrack, snapWaypointsToNotes, type ImportedNote } from '@core/geo/track';
 ```
+
 Extend `ImportedTrack` (line 7):
+
 ```ts
 export interface ImportedTrack {
   track: Track;
@@ -454,7 +505,9 @@ export interface ImportedTrack {
   notes: ImportedNote[];
 }
 ```
+
 Replace `importOne` body (lines 18-35) so it computes notes:
+
 ```ts
 async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<ImportedTrack> {
   const id = storage.newId();
@@ -478,8 +531,9 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
 ```
 
 `src/features/library/LibraryScreen.tsx` — in `onImportGpx`, pass notes (line ~111):
+
 ```ts
-      [...result.items].reverse().forEach(({ track, fileUri, notes }) => addTrack(track, fileUri, notes));
+[...result.items].reverse().forEach(({ track, fileUri, notes }) => addTrack(track, fileUri, notes));
 ```
 
 - [ ] **Step 4: Run tests + full check**
@@ -507,13 +561,16 @@ Import a GPX containing `<wpt>` markers (use the emulator + a pushed file). Conf
 ### Task 4: Add `trailViewMode` to settings
 
 **Files:**
+
 - Modify: `src/state/settingsStore.ts`
 - Test: `src/state/settingsStore.trailmode.test.ts`
 
 **Interfaces:**
+
 - Produces: `Settings.trailViewMode: '2d' | '3d'` (default `'3d'`).
 
 - [ ] **Step 1: Write the failing test**
+
 ```ts
 // src/state/settingsStore.trailmode.test.ts
 import { useSettingsStore } from './settingsStore';
@@ -534,23 +591,43 @@ Expected: FAIL (`trailViewMode` undefined).
 - [ ] **Step 3: Implement** — in `src/state/settingsStore.ts`:
 
 Add to `Settings` interface (after line 30):
+
 ```ts
-  /** Trail detail view: real 3D terrain or a flat 2D map. */
-  trailViewMode: '2d' | '3d';
+/** Trail detail view: real 3D terrain or a flat 2D map. */
+trailViewMode: '2d' | '3d';
 ```
+
 Add to `DEFAULTS` (line 33-39):
+
 ```ts
   trailViewMode: '3d',
 ```
+
 Add `trailViewMode` to BOTH destructured persist blocks (lines 63-69 and 70-76):
+
 ```ts
-    const { tileUrl, keepAwakeWhileRecording, rotateMapWithHeading, minDisplacementM, elevationProfileStyle, trailViewMode } = get();
-    persist({ tileUrl, keepAwakeWhileRecording, rotateMapWithHeading, minDisplacementM, elevationProfileStyle, trailViewMode });
+const {
+  tileUrl,
+  keepAwakeWhileRecording,
+  rotateMapWithHeading,
+  minDisplacementM,
+  elevationProfileStyle,
+  trailViewMode,
+} = get();
+persist({
+  tileUrl,
+  keepAwakeWhileRecording,
+  rotateMapWithHeading,
+  minDisplacementM,
+  elevationProfileStyle,
+  trailViewMode,
+});
 ```
 
 - [ ] **Step 4: Run tests** — `npx jest src/state/settingsStore.trailmode.test.ts` → PASS.
 
 - [ ] **Step 5: Commit**
+
 ```bash
 git add src/state/settingsStore.ts src/state/settingsStore.trailmode.test.ts
 git commit -m "feat(settings): add trailViewMode (2d/3d), default 3d
@@ -563,9 +640,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 5: Build the 2D trail view component
 
 **Files:**
+
 - Create: `src/features/map/Trail2DView.tsx`
 
 **Interfaces:**
+
 - Consumes: `TrackPoint`, `TrackNote` from `@core/models`; `interpolateTrackAtDistance` from `@core/geo/track`; `bboxFromLngLats` from `@core/geo/geomath`; the local `Map` wrapper + MapLibre `Camera`, `ShapeSource`/`LineLayer`, `CircleLayer` already used in `MapScreen.tsx`.
 - Produces: `export function Trail2DView(props: { points: readonly TrackPoint[]; notes?: readonly TrackNote[]; })`.
 
@@ -578,6 +657,7 @@ binding.
 - [ ] **Step 1: Implement the component**
 
 Create `src/features/map/Trail2DView.tsx`:
+
 ```tsx
 import type { TrackNote, TrackPoint } from '@core/models';
 import { interpolateTrackAtDistance } from '@core/geo/track';
@@ -603,7 +683,10 @@ export function Trail2DView({
   const style = useMemo(() => buildOsmStyle(tileUrl, false, basemap), [tileUrl, basemap]);
   const cameraRef = useRef<CameraRef>(null);
 
-  const lngLats = useMemo(() => points.map((p) => [p.longitude, p.latitude] as [number, number]), [points]);
+  const lngLats = useMemo(
+    () => points.map((p) => [p.longitude, p.latitude] as [number, number]),
+    [points],
+  );
 
   const lineFeature = useMemo(
     () => ({
@@ -685,6 +768,7 @@ Run: `npx tsc --noEmit`
 Expected: PASS (0 errors). Fix any import-name mismatches against MapScreen here.
 
 - [ ] **Step 3: Commit**
+
 ```bash
 git add src/features/map/Trail2DView.tsx
 git commit -m "feat(trail): 2D MapLibre trail view with note pins
@@ -697,9 +781,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 6: Wire the 2D/3D toggle into the trail screen
 
 **Files:**
+
 - Modify: `src/features/map/Trail3DGLScreen.tsx`
 
 **Interfaces:**
+
 - Consumes: `useSettingsStore` (`trailViewMode`, `set`), `Trail2DView`, the
   loaded `points` + `notes` already present in the screen.
 
@@ -711,17 +797,22 @@ the GL view. The edits below describe exactly what to add at those anchors.
 - [ ] **Step 1: Add the toggle state + control**
 
 Near the other store hooks at the top of `Trail3DGLScreen`:
+
 ```ts
 const trailViewMode = useSettingsStore((s) => s.trailViewMode);
 const setSetting = useSettingsStore((s) => s.set);
 ```
+
 Add the import:
+
 ```ts
 import { SegmentedButtons } from 'react-native-paper';
 import { Trail2DView } from './Trail2DView';
 import { useSettingsStore } from '@state/settingsStore';
 ```
+
 Render this control in the header region (above the map area):
+
 ```tsx
 <SegmentedButtons
   value={trailViewMode}
@@ -738,6 +829,7 @@ Render this control in the header region (above the map area):
 
 Wrap the existing GL view node so it renders only in 3D, and render `Trail2DView`
 in 2D. Use the screen's already-loaded `points` and `notes`:
+
 ```tsx
 {trailViewMode === '2d' ? (
   <Trail2DView points={points} notes={notes} />
@@ -745,6 +837,7 @@ in 2D. Use the screen's already-loaded `points` and `notes`:
   /* existing GL view JSX node, unchanged */
 )}
 ```
+
 If the GL view passes notes/waypoints as a prop, also pass `notes` to it so 3D
 shows the same pins (the 3D surface already drapes waypoint pins — feed the
 trail's `notes` mapped through `interpolateTrackAtDistance` to lat/lon, mirroring
@@ -756,6 +849,7 @@ Run: `npm run check`
 Expected: PASS, zero warnings.
 
 - [ ] **Step 4: Commit**
+
 ```bash
 git add src/features/map/Trail3DGLScreen.tsx
 git commit -m "feat(trail): 2D/3D toggle in the trail view, remembered in settings
@@ -776,26 +870,36 @@ and reopening.
 ### Task 7: Classify an incoming file URI (pure)
 
 **Files:**
+
 - Create: `src/core/share/incomingFile.ts`
 - Test: `src/core/share/incomingFile.test.ts`
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export function classifyIncomingUri(uri: string): { kind: 'gpx' | 'unknown'; name: string };
   ```
 
 - [ ] **Step 1: Write the failing test**
+
 ```ts
 import { classifyIncomingUri } from './incomingFile';
 
 it('detects .gpx by extension across file/content URIs', () => {
-  expect(classifyIncomingUri('file:///x/Sentier%20A.gpx')).toEqual({ kind: 'gpx', name: 'Sentier A' });
+  expect(classifyIncomingUri('file:///x/Sentier%20A.gpx')).toEqual({
+    kind: 'gpx',
+    name: 'Sentier A',
+  });
   expect(classifyIncomingUri('content://downloads/trail.GPX').kind).toBe('gpx');
 });
 
 it('falls back to a generic name and unknown kind', () => {
-  expect(classifyIncomingUri('content://media/12345')).toEqual({ kind: 'unknown', name: 'Imported trail' });
+  expect(classifyIncomingUri('content://media/12345')).toEqual({
+    kind: 'unknown',
+    name: 'Imported trail',
+  });
   expect(classifyIncomingUri('file:///x/notes.pdf').kind).toBe('unknown');
 });
 ```
@@ -808,6 +912,7 @@ Expected: FAIL (module not found).
 - [ ] **Step 3: Implement**
 
 Create `src/core/share/incomingFile.ts`:
+
 ```ts
 /**
  * Decide whether an opened file URI is a GPX we can import, and derive a display
@@ -832,6 +937,7 @@ export function classifyIncomingUri(uri: string): { kind: 'gpx' | 'unknown'; nam
 - [ ] **Step 4: Run tests** — `npx jest src/core/share/incomingFile.test.ts` → PASS.
 
 - [ ] **Step 5: Commit**
+
 ```bash
 git add src/core/share/incomingFile.ts src/core/share/incomingFile.test.ts
 git commit -m "feat(share): classify incoming .gpx file URIs (pure)
@@ -844,10 +950,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 8: Read an opened URI as text + import-from-URI
 
 **Files:**
+
 - Modify: `src/data/storage.ts` (add `readTextFromUri`, `writeGpxText`)
 - Modify: `src/features/library/importGpx.ts` (add `importGpxFromUri`, refactor shared logic)
 
 **Interfaces:**
+
 - Produces:
   - `storage.readTextFromUri(uri: string): Promise<string>`
   - `storage.writeGpxText(id: string, text: string): string`
@@ -866,6 +974,7 @@ fallback (below) before continuing.
 - [ ] **Step 1: Implement storage helpers**
 
 In `src/data/storage.ts` add near the GPX helpers:
+
 ```ts
 /**
  * Read a file's text from any URI, including the content:// URIs delivered by
@@ -886,6 +995,7 @@ export function writeGpxText(id: string, text: string): string {
   return dest.uri;
 }
 ```
+
 **Fallback (only if Step 0 showed `File.text()` can't read content://):** import
 `* as LegacyFS from 'expo-file-system/legacy'` and implement `readTextFromUri`
 as `LegacyFS.readAsStringAsync(uri)`.
@@ -894,8 +1004,14 @@ as `LegacyFS.readAsStringAsync(uri)`.
 
 In `src/features/library/importGpx.ts`, extract the shared tail and add the new
 entry point:
+
 ```ts
-function buildFromGpxText(text: string, id: string, fileUri: string, fallbackName: string): ImportedTrack {
+function buildFromGpxText(
+  text: string,
+  id: string,
+  fileUri: string,
+  fallbackName: string,
+): ImportedTrack {
   const { metadata, points, waypoints, hasTrackOrRoutePoints } = parseGpx(text);
   if (points.length === 0) {
     storage.deleteFileAt(fileUri);
@@ -916,7 +1032,12 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
   const id = storage.newId();
   const fileUri = await storage.importGpx(asset.uri, id);
   const text = await storage.readFileText(fileUri);
-  return buildFromGpxText(text, id, fileUri, asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail');
+  return buildFromGpxText(
+    text,
+    id,
+    fileUri,
+    asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
+  );
 }
 
 /** Import a GPX from an arbitrary opened URI (e.g. an Android "Open with" intent). */
@@ -934,6 +1055,7 @@ Run: `npm run check`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
+
 ```bash
 git add src/data/storage.ts src/features/library/importGpx.ts
 git commit -m "feat(import): importGpxFromUri reading content:// opened files
@@ -946,10 +1068,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 9: Root feedback store + snackbar
 
 **Files:**
+
 - Create: `src/state/importFeedbackStore.ts`
 - Create: `src/features/share/ImportFeedbackSnackbar.tsx`
 
 **Interfaces:**
+
 - Produces:
   - `useImportFeedbackStore` with `{ message: string | null; show: (m: string) => void; clear: () => void }`
   - `<ImportFeedbackSnackbar />` root component.
@@ -957,6 +1081,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Implement the store**
 
 Create `src/state/importFeedbackStore.ts`:
+
 ```ts
 import { create } from 'zustand';
 
@@ -977,6 +1102,7 @@ export const useImportFeedbackStore = create<ImportFeedbackState>((set) => ({
 - [ ] **Step 2: Implement the snackbar**
 
 Create `src/features/share/ImportFeedbackSnackbar.tsx`:
+
 ```tsx
 import { useImportFeedbackStore } from '@state/importFeedbackStore';
 import { Snackbar } from 'react-native-paper';
@@ -995,6 +1121,7 @@ export function ImportFeedbackSnackbar() {
 - [ ] **Step 3: Typecheck** — `npx tsc --noEmit` → PASS.
 
 - [ ] **Step 4: Commit**
+
 ```bash
 git add src/state/importFeedbackStore.ts src/features/share/ImportFeedbackSnackbar.tsx
 git commit -m "feat(share): root import-feedback store + snackbar
@@ -1007,16 +1134,19 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 10: Incoming-file hook + mount at root
 
 **Files:**
+
 - Create: `src/features/share/useIncomingFile.ts`
 - Modify: `app/_layout.tsx`
 
 **Interfaces:**
+
 - Consumes: `expo-linking`, `classifyIncomingUri`, `importGpxFromUri`,
   `useLibraryStore.addTrack`, `useImportFeedbackStore.show`, `expo-router`.
 
 - [ ] **Step 1: Implement the hook**
 
 Create `src/features/share/useIncomingFile.ts`:
+
 ```ts
 import { classifyIncomingUri } from '@core/share/incomingFile';
 import { importGpxFromUri } from '@features/library/importGpx';
@@ -1070,6 +1200,7 @@ export function useIncomingFile(): void {
 In `app/_layout.tsx`: call the hook inside `RootLayout` (after the existing
 `useEffect` hydration) and render the snackbar inside the providers, after
 `<Stack>...</Stack>`:
+
 ```tsx
 import { useIncomingFile } from '@features/share/useIncomingFile';
 import { ImportFeedbackSnackbar } from '@features/share/ImportFeedbackSnackbar';
@@ -1083,6 +1214,7 @@ import { ImportFeedbackSnackbar } from '@features/share/ImportFeedbackSnackbar';
 - [ ] **Step 3: Typecheck + lint** — `npm run check` → PASS.
 
 - [ ] **Step 4: Commit**
+
 ```bash
 git add src/features/share/useIncomingFile.ts app/_layout.tsx
 git commit -m "feat(share): import a .gpx opened via the OS open-with flow
@@ -1095,11 +1227,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 11: Register the native file association
 
 **Files:**
+
 - Modify: `app.config.ts`
 
 - [ ] **Step 1: Add Android intent filters**
 
 In `app.config.ts`, inside the `android` object (after `permissions`, ~line 45):
+
 ```ts
     intentFilters: [
       {
@@ -1119,6 +1253,7 @@ In `app.config.ts`, inside the `android` object (after `permissions`, ~line 45):
 - [ ] **Step 2: Add iOS document type**
 
 In `app.config.ts`, inside `ios.infoPlist` (after `ITSAppUsesNonExemptEncryption`):
+
 ```ts
       CFBundleDocumentTypes: [
         {
@@ -1147,6 +1282,7 @@ Run: `npx expo config --type public > /dev/null && echo OK`
 Expected: `OK` (config evaluates without error).
 
 - [ ] **Step 5: Commit**
+
 ```bash
 git add app.config.ts
 git commit -m "feat(android,ios): register Inukshuk as a .gpx file handler (vc42)

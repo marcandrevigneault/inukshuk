@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inukshuk — free, open-source offline trail navigation</title>
+    <meta
+      name="description"
+      content="Inukshuk is a free, open-source, community-driven trail navigation app. Bring your own georeferenced PDF maps, navigate offline with live GPS, and record your routes as GPX. No accounts, no ads, no tracking."
+    />
+    <meta property="og:title" content="Inukshuk — free, open-source offline trail navigation" />
+    <meta
+      property="og:description"
+      content="Bring your own maps. Navigate offline. Free forever, open source, built by the community."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./icon.png" />
+    <link rel="icon" href="./icon.png" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        /* Palette sampled from the app logo + Material theme. */
+        --inukshuk: #2d3740; /* charcoal-navy — the stone figure */
+        --foliage: #566b33; /* deepened sage — primary */
+        --foliage-bright: #6f8a44;
+        --river: #3e7ba0; /* deepened river — accents */
+        --stone: #8a8b8c;
+        --cream: #f2ece0; /* warm paper */
+        --surface: #fbf8f2;
+        --ink: #1f261d;
+        --muted: #4a5347;
+        --card-border: rgba(45, 55, 64, 0.12);
+        --shadow: 0 1px 2px rgba(45, 55, 64, 0.06), 0 12px 32px rgba(45, 55, 64, 0.1);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --foliage: #b6c98a;
+          --foliage-bright: #c9d89e;
+          --river: #8fc3e0;
+          --cream: #10140f;
+          --surface: #171c14;
+          --ink: #e9ece4;
+          --muted: #aab3a3;
+          --card-border: rgba(182, 201, 138, 0.16);
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        color: var(--ink);
+        background-color: var(--cream);
+        /* Topographic contour wash — echoes the app's map aesthetic. */
+        background-image: radial-gradient(
+            1200px 600px at 80% -10%,
+            rgba(62, 123, 160, 0.1),
+            transparent 60%
+          ),
+          radial-gradient(900px 500px at -10% 10%, rgba(86, 107, 51, 0.12), transparent 55%);
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--river);
+      }
+      .wrap {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+
+      /* ---- Nav ---- */
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: saturate(1.2) blur(10px);
+        background: color-mix(in srgb, var(--cream) 82%, transparent);
+        border-bottom: 1px solid var(--card-border);
+      }
+      nav .wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        height: 60px;
+      }
+      nav img {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+      }
+      nav .brand {
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        font-size: 1.1rem;
+      }
+      nav .spacer {
+        flex: 1;
+      }
+      nav a.navlink {
+        text-decoration: none;
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 0.95rem;
+        padding: 0.4rem 0.6rem;
+        border-radius: 8px;
+      }
+      nav a.navlink:hover {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--foliage) 12%, transparent);
+      }
+      @media (max-width: 680px) {
+        nav a.navlink.hide-sm {
+          display: none;
+        }
+      }
+
+      /* ---- Buttons ---- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 1rem;
+        padding: 0.7rem 1.2rem;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        transition:
+          transform 0.08s ease,
+          box-shadow 0.15s ease,
+          background 0.15s ease;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn-primary {
+        background: var(--foliage);
+        color: #fff;
+        box-shadow: var(--shadow);
+      }
+      @media (prefers-color-scheme: dark) {
+        .btn-primary {
+          color: #1a230b;
+        }
+      }
+      .btn-primary:hover {
+        background: var(--foliage-bright);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--card-border);
+      }
+      .btn-ghost:hover {
+        background: color-mix(in srgb, var(--foliage) 10%, transparent);
+      }
+
+      /* ---- Hero ---- */
+      header.hero {
+        padding: 4.5rem 0 3rem;
+        text-align: center;
+      }
+      .hero img.app-icon {
+        width: 112px;
+        height: 112px;
+        border-radius: 26px;
+        box-shadow: var(--shadow);
+      }
+      .hero h1 {
+        font-size: clamp(2.1rem, 6vw, 3.4rem);
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        margin: 1.2rem 0 0.4rem;
+        color: var(--inukshuk);
+      }
+      @media (prefers-color-scheme: dark) {
+        .hero h1 {
+          color: var(--ink);
+        }
+      }
+      .hero .tagline {
+        font-size: clamp(1.05rem, 2.6vw, 1.3rem);
+        color: var(--muted);
+        max-width: 36ch;
+        margin: 0 auto;
+      }
+      .pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: center;
+        margin: 1.4rem 0 0;
+      }
+      .pill {
+        font-weight: 700;
+        font-size: 0.85rem;
+        padding: 0.35rem 0.8rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--foliage) 16%, transparent);
+        color: var(--foliage);
+        border: 1px solid color-mix(in srgb, var(--foliage) 30%, transparent);
+      }
+      .cta-row {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 1.8rem;
+      }
+      .cta-note {
+        margin-top: 0.9rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      /* ---- Sections ---- */
+      section {
+        padding: 3rem 0;
+      }
+      section h2 {
+        font-size: clamp(1.6rem, 4vw, 2.1rem);
+        letter-spacing: -0.02em;
+        text-align: center;
+        margin: 0 0 0.5rem;
+        color: var(--inukshuk);
+      }
+      @media (prefers-color-scheme: dark) {
+        section h2 {
+          color: var(--ink);
+        }
+      }
+      section .sub {
+        text-align: center;
+        color: var(--muted);
+        max-width: 56ch;
+        margin: 0 auto 2.2rem;
+      }
+
+      /* ---- Feature grid ---- */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+        padding: 1.4rem;
+        box-shadow: var(--shadow);
+      }
+      .card .ico {
+        font-size: 1.6rem;
+        line-height: 1;
+      }
+      .card h3 {
+        margin: 0.7rem 0 0.3rem;
+        font-size: 1.1rem;
+        color: var(--ink);
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.96rem;
+      }
+
+      /* ---- Community band ---- */
+      .band {
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--foliage) 18%, var(--surface)),
+          color-mix(in srgb, var(--river) 14%, var(--surface))
+        );
+        border: 1px solid var(--card-border);
+        border-radius: 22px;
+        padding: 2.4rem;
+        text-align: center;
+      }
+      .band h2 {
+        margin-top: 0;
+      }
+      .ideas {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 1.8rem 0;
+        text-align: left;
+      }
+      .idea {
+        background: color-mix(in srgb, var(--surface) 70%, transparent);
+        border: 1px solid var(--card-border);
+        border-radius: 14px;
+        padding: 1.1rem;
+      }
+      .idea strong {
+        display: block;
+        color: var(--ink);
+        margin-bottom: 0.2rem;
+      }
+      .idea span {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      /* ---- Steps ---- */
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+        counter-reset: step;
+      }
+      .step {
+        position: relative;
+        padding: 1.3rem 1.3rem 1.3rem 3.4rem;
+        background: var(--surface);
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+      }
+      .step::before {
+        counter-increment: step;
+        content: counter(step);
+        position: absolute;
+        left: 1.1rem;
+        top: 1.2rem;
+        width: 1.7rem;
+        height: 1.7rem;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--foliage);
+        color: #fff;
+        font-weight: 800;
+        font-size: 0.95rem;
+      }
+      @media (prefers-color-scheme: dark) {
+        .step::before {
+          color: #1a230b;
+        }
+      }
+      .step h3 {
+        margin: 0 0 0.25rem;
+        font-size: 1.05rem;
+      }
+      .step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      /* ---- Footer ---- */
+      footer {
+        border-top: 1px solid var(--card-border);
+        padding: 2.4rem 0 3rem;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      footer .cols {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem 2.5rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      footer a {
+        color: var(--muted);
+        text-decoration: none;
+        margin-right: 1.1rem;
+      }
+      footer a:hover {
+        color: var(--ink);
+        text-decoration: underline;
+      }
+      .heart {
+        color: var(--river);
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="wrap">
+        <img src="./icon.png" alt="Inukshuk icon" />
+        <span class="brand">Inukshuk</span>
+        <span class="spacer"></span>
+        <a class="navlink hide-sm" href="#features">Features</a>
+        <a class="navlink hide-sm" href="#community">Community</a>
+        <a class="navlink hide-sm" href="./privacy/">Privacy</a>
+        <a class="navlink" href="https://github.com/marcandrevigneault/inukshuk">GitHub</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="wrap">
+        <img class="app-icon" src="./icon.png" alt="Inukshuk app icon" />
+        <h1>Your maps. Your trails.<br />Off the grid.</h1>
+        <p class="tagline">
+          A free, open-source trail companion that works where the signal doesn't.
+        </p>
+        <div class="pills">
+          <span class="pill">100% Free</span>
+          <span class="pill">Open Source (MIT)</span>
+          <span class="pill">Community-Driven</span>
+          <span class="pill">No Ads · No Tracking</span>
+        </div>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/marcandrevigneault/inukshuk"
+            >★ Star on GitHub</a
+          >
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/marcandrevigneault/inukshuk/discussions"
+            >💡 Suggest an idea</a
+          >
+        </div>
+        <p class="cta-note">Currently in alpha testing on Android. Built in the open.</p>
+      </div>
+    </header>
+
+    <section id="features">
+      <div class="wrap">
+        <h2>Everything offline. Nothing tracked.</h2>
+        <p class="sub">
+          Inukshuk turns your own georeferenced PDF maps into a live navigation tool — no data plan,
+          no account, no servers watching where you go.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <div class="ico">🗺️</div>
+            <h3>Bring your own maps</h3>
+            <p>
+              Import georeferenced PDF maps and see your live GPS position right on them — park maps,
+              topo sheets, ski trails, anything.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ico">📡</div>
+            <h3>Works with no signal</h3>
+            <p>
+              Everything runs on-device. An OpenStreetMap base layer fills in when you wander off the
+              edge of your map.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ico">⛰️</div>
+            <h3>Real 3D terrain</h3>
+            <p>
+              See the landscape around you in true 3D relief, with your trails and route draped over
+              the mountains.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ico">📍</div>
+            <h3>Record your routes</h3>
+            <p>
+              Track live time, distance and elevation gain/loss. Save and share every outing as a
+              standard GPX file.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ico">📈</div>
+            <h3>Elevation profiles</h3>
+            <p>
+              Every recorded trail gets a pace-and-grade profile you can scrub through, with notes
+              and photos along the way.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ico">🔒</div>
+            <h3>Private by design</h3>
+            <p>
+              Your location never leaves your phone. No analytics, no ads, no account.
+              <a href="./privacy/">Read the privacy policy →</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Up and running in a minute</h2>
+        <div class="steps">
+          <div class="step">
+            <h3>Install &amp; allow location</h3>
+            <p>Open the app and grant foreground location so it can show where you are.</p>
+          </div>
+          <div class="step">
+            <h3>Import a map or GPX</h3>
+            <p>Tap Import and pick a georeferenced PDF map or a GPX trail from your device.</p>
+          </div>
+          <div class="step">
+            <h3>Head outside</h3>
+            <p>Navigate offline and hit Record to capture your trail. That's it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="community">
+      <div class="wrap">
+        <div class="band">
+          <h2>Built by the community, for the community</h2>
+          <p class="sub" style="margin-bottom: 0.5rem">
+            Inukshuk is free and open source under the MIT license — no company, no paywall, no
+            premium tier. It gets better when people who actually hit the trails help shape it.
+          </p>
+          <div class="ideas">
+            <div class="idea">
+              <strong>💡 Propose a feature</strong>
+              <span
+                >Got an idea that would make a real day outdoors better? Open a discussion and let's
+                talk it through.</span
+              >
+            </div>
+            <div class="idea">
+              <strong>🧩 Pitch a plugin</strong>
+              <span
+                >Imagine a new map source, overlay, or export. Plugin ideas are welcome — sketch it
+                out and rally support.</span
+              >
+            </div>
+            <div class="idea">
+              <strong>🛠️ Contribute code</strong>
+              <span
+                >TypeScript / React Native developer? The repo is open, the issues are labeled, and
+                PRs are warmly welcomed.</span
+              >
+            </div>
+            <div class="idea">
+              <strong>🐞 Report a bug</strong>
+              <span
+                >Something off on the trail? File an issue with what you saw — every report makes the
+                next release sturdier.</span
+              >
+            </div>
+          </div>
+          <div class="cta-row">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/marcandrevigneault/inukshuk/discussions"
+              >Share an idea or plugin</a
+            >
+            <a
+              class="btn btn-ghost"
+              href="https://github.com/marcandrevigneault/inukshuk/issues/new"
+              >Report a bug</a
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap cols">
+        <div>
+          <strong style="color: var(--ink)">Inukshuk</strong> — free &amp; open-source offline trail
+          navigation.<br />
+          Made with <span class="heart">♥</span> for people who go where the map ends.
+        </div>
+        <div>
+          <a href="#features">Features</a>
+          <a href="#community">Community</a>
+          <a href="./privacy/">Privacy</a>
+          <a href="https://github.com/marcandrevigneault/inukshuk">GitHub</a>
+          <a href="https://github.com/marcandrevigneault/inukshuk/blob/main/LICENSE">MIT License</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

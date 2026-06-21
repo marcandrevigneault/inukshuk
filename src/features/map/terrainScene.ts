@@ -129,20 +129,20 @@ export function buildTerrain(
   if (points.length >= 2) {
     const surface = points.map((p) => project(p.longitude, p.latitude));
     const segs = Math.min(1400, surface.length * 6);
-    // A white casing tube hugging the surface with a thinner red line riding just
-    // on top — a clean cased red drape that reads like a route on a map (matching
-    // the 2D view), instead of a thin bright wire floating over the terrain.
-    const curveAt = (dy: number) =>
-      new THREE.CatmullRomCurve3(surface.map((v) => v.clone().setY(v.y + dy)));
-    const casing = new THREE.TubeGeometry(curveAt(0.003), segs, 0.0056, 8, false);
-    group.add(
-      new THREE.Mesh(casing, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 })),
-    );
-    const line = new THREE.TubeGeometry(curveAt(0.0046), segs, 0.0032, 8, false);
+    // A single red route line, hugging the surface and a touch thicker than a
+    // hairline so it reads as a drawn track, not a thin floating wire. Shaded
+    // (MeshStandard) with red emissive so it stays clearly red in shadow too.
+    const curve = new THREE.CatmullRomCurve3(surface.map((v) => v.clone().setY(v.y + 0.0035)));
+    const tube = new THREE.TubeGeometry(curve, segs, 0.0046, 8, false);
     group.add(
       new THREE.Mesh(
-        line,
-        new THREE.MeshStandardMaterial({ color: 0xd81f1f, emissive: 0x320505, roughness: 0.55 }),
+        tube,
+        new THREE.MeshStandardMaterial({
+          color: 0xe01b1b,
+          emissive: 0x6a0a0a,
+          emissiveIntensity: 0.6,
+          roughness: 0.5,
+        }),
       ),
     );
     // Half-extent of the trace on the ground plane, for camera framing.

@@ -98,24 +98,18 @@ function addPolyline(
   let run: THREE.Vector3[] = [];
   const flush = () => {
     if (run.length >= 2) {
-      const segs = Math.min(900, run.length * 6);
-      // White casing hugging the surface + the coloured line riding on top — a
-      // clean cased drape that reads like a route, not a thin floating wire.
-      const curveAt = (dy: number) =>
-        new THREE.CatmullRomCurve3(run.map((v) => v.clone().setY(v.y + dy)));
-      const casing = new THREE.TubeGeometry(curveAt(0.003), segs, radius * 1.7, 6, false);
-      group.add(
-        new THREE.Mesh(casing, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 })),
-      );
-      const tube = new THREE.TubeGeometry(curveAt(0.0046), segs, radius, 6, false);
+      // A single coloured route line hugging the surface — shaded with a matching
+      // emissive so it stays clearly its colour (red trail / orange recording).
+      const curve = new THREE.CatmullRomCurve3(run.map((v) => v.clone().setY(v.y + 0.0035)));
+      const tube = new THREE.TubeGeometry(curve, Math.min(900, run.length * 6), radius, 6, false);
       group.add(
         new THREE.Mesh(
           tube,
           new THREE.MeshStandardMaterial({
             color,
             emissive: color,
-            emissiveIntensity: 0.25,
-            roughness: 0.55,
+            emissiveIntensity: 0.5,
+            roughness: 0.5,
           }),
         ),
       );

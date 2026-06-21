@@ -111,7 +111,16 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const [exporting, setExporting] = useState(false);
   const { message: snack, show: showSnack, dismiss: dismissSnack } = useTimedSnackbar(2500);
 
-  const orbit = useRef({ theta: 0.6, phi: 0.85, radius: 4, center: new THREE.Vector3() });
+  const orbit = useRef({
+    theta: 0.6,
+    phi: 0.85,
+    radius: 4,
+    center: new THREE.Vector3(),
+    // Trail centre the camera was framed on, and how far the look-at point may be
+    // panned from it (two-finger drag) so you can move around a bit, not fly off.
+    home: new THREE.Vector3(),
+    maxPan: 1,
+  });
   const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
   const scrubRef = useRef<TrackPointAt | null>(null);
@@ -141,8 +150,15 @@ export function Trail3DGLScreen({ trackId }: Props) {
             const cy = (t[0].pageY + t[1].pageY) / 2;
             if (gp.dist > 0) {
               o.radius = clamp(o.radius * (gp.dist / dist), 0.8, 9);
-              o.theta -= (cx - gp.cx) * 0.006;
-              o.phi = clamp(o.phi - (cy - gp.cy) * 0.006, 0.12, 1.45);
+              // Two-finger drag pans the look-at point across the ground (move
+              // around the trail a bit), bounded to maxPan from the trail centre.
+              const s = o.radius * 0.0016;
+              const dx = (cx - gp.cx) * s;
+              const dy = (cy - gp.cy) * s;
+              const nx = o.center.x - dx * Math.cos(o.theta) + dy * Math.sin(o.theta);
+              const nz = o.center.z + dx * Math.sin(o.theta) + dy * Math.cos(o.theta);
+              o.center.x = clamp(nx, o.home.x - o.maxPan, o.home.x + o.maxPan);
+              o.center.z = clamp(nz, o.home.z - o.maxPan, o.home.z + o.maxPan);
             }
             gp.dist = dist;
             gp.cx = cx;
@@ -248,7 +264,9 @@ export function Trail3DGLScreen({ trackId }: Props) {
         0.01,
         100,
       );
-      orbit.current.center = center;
+      orbit.current.center = center.clone();
+      orbit.current.home = center.clone();
+      orbit.current.maxPan = Math.max(trailRadius * 1.8, 0.5);
       // Frame the trail (not the whole padded slab) so the surrounding terrain
       // fills the screen with the trace prominent in the middle.
       orbit.current.radius = clamp(trailRadius * 2.6, 0.8, 9);

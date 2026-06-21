@@ -4,7 +4,7 @@ import { bboxFromLngLats } from '@core/geo/geomath';
 import { useSettingsStore } from '@state/settingsStore';
 import { useMapStore } from '@state/mapStore';
 import { Camera, type CameraRef, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { buildOsmStyle } from './mapStyle';
 import { toLngLatBounds } from './geojson';
@@ -52,7 +52,10 @@ export function Trail2DView({
 
   const bbox = useMemo(() => (lngLats.length >= 1 ? bboxFromLngLats(lngLats) : null), [lngLats]);
 
-  useEffect(() => {
+  // Fit the camera to the trail. Must run once the map is loaded (the camera ref
+  // is a no-op before then), so we also call it from onDidFinishLoadingMap — not
+  // only from this effect, which fires on mount before the map is ready.
+  const fitToTrail = useCallback(() => {
     if (!bbox) return;
     cameraRef.current?.fitBounds(toLngLatBounds(bbox), {
       duration: 0,
@@ -60,8 +63,12 @@ export function Trail2DView({
     });
   }, [bbox]);
 
+  useEffect(() => {
+    fitToTrail();
+  }, [fitToTrail]);
+
   return (
-    <Map style={styles.fill} mapStyle={style} compass={false}>
+    <Map style={styles.fill} mapStyle={style} compass={false} onDidFinishLoadingMap={fitToTrail}>
       <Camera ref={cameraRef} />
       <GeoJSONSource id="trail-2d" data={lineFeature}>
         <Layer

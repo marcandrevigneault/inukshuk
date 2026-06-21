@@ -15,11 +15,12 @@ export type BulkGpxImportResult =
   | { kind: 'canceled' }
   | { kind: 'error'; message: string };
 
-/** Copy + parse one picked GPX asset into a Track (throws on failure / no points). */
-async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<ImportedTrack> {
-  const id = storage.newId();
-  const fileUri = await storage.importGpx(asset.uri, id);
-  const text = await storage.readFileText(fileUri);
+function buildFromGpxText(
+  text: string,
+  id: string,
+  fileUri: string,
+  fallbackName: string,
+): ImportedTrack {
   const { metadata, points, waypoints, hasTrackOrRoutePoints } = parseGpx(text);
   if (points.length === 0) {
     storage.deleteFileAt(fileUri);
@@ -29,11 +30,32 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
     id,
     points,
     name: metadata.name,
-    fallbackName: asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
+    fallbackName,
     fallbackTime: Date.now(),
   });
   const notes = hasTrackOrRoutePoints ? snapWaypointsToNotes(points, waypoints) : [];
   return { track, fileUri, notes };
+}
+
+/** Copy + parse one picked GPX asset into a Track (throws on failure / no points). */
+async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<ImportedTrack> {
+  const id = storage.newId();
+  const fileUri = await storage.importGpx(asset.uri, id);
+  const text = await storage.readFileText(fileUri);
+  return buildFromGpxText(
+    text,
+    id,
+    fileUri,
+    asset.name?.replace(/\.gpx$/i, '') ?? 'Imported trail',
+  );
+}
+
+/** Import a GPX from an arbitrary opened URI (e.g. an Android "Open with" intent). */
+export async function importGpxFromUri(uri: string, fallbackName: string): Promise<ImportedTrack> {
+  const id = storage.newId();
+  const text = await storage.readTextFromUri(uri);
+  const fileUri = storage.writeGpxText(id, text);
+  return buildFromGpxText(text, id, fileUri, fallbackName);
 }
 
 /**

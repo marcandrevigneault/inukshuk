@@ -61,6 +61,29 @@ export async function importGpx(sourceUri: string, id: string): Promise<string> 
   return dest.uri;
 }
 
+/**
+ * Read a file's text from any URI, including the content:// URIs delivered by
+ * Android "Open with" intents (the picker only ever gives us a cached file://).
+ * GPX is text, so we read it directly instead of a binary copy.
+ *
+ * Fallback (if File.text() can't read content:// on device):
+ *   import * as LegacyFS from 'expo-file-system/legacy';
+ *   return LegacyFS.readAsStringAsync(uri);
+ */
+export async function readTextFromUri(uri: string): Promise<string> {
+  return new File(uri).text();
+}
+
+/** Write GPX text into app storage under a stable id; returns the new file uri. */
+export function writeGpxText(id: string, text: string): string {
+  ensureStorage();
+  const dest = new File(tracksDir(), `${id}.gpx`);
+  if (dest.exists) dest.delete();
+  dest.create();
+  dest.write(text);
+  return dest.uri;
+}
+
 export async function readFileBase64(uri: string): Promise<string> {
   return new File(uri).base64();
 }

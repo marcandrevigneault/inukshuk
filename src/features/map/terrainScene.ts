@@ -127,21 +127,27 @@ export function buildTerrain(
   const slabRadius = Math.max(spanXn, spanZn) * 1.15;
   let trailRadius = slabRadius;
   if (points.length >= 2) {
-    // Lift the trace a hair above the surface so the fine line reads as a crisp
-    // red drape instead of a fat tube half-buried in the mesh.
-    const pts = points.map((p) => {
-      const v = project(p.longitude, p.latitude);
-      v.y += 0.006;
-      return v;
-    });
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const tube = new THREE.TubeGeometry(curve, Math.min(1400, pts.length * 6), 0.0038, 8, false);
-    // Unlit so the route reads as a consistently bright red line regardless of
-    // terrain shading (like a drawn track), not a dull shaded blue tube.
-    group.add(new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0xe0312b })));
+    const surface = points.map((p) => project(p.longitude, p.latitude));
+    const segs = Math.min(1400, surface.length * 6);
+    // A white casing tube hugging the surface with a thinner red line riding just
+    // on top — a clean cased red drape that reads like a route on a map (matching
+    // the 2D view), instead of a thin bright wire floating over the terrain.
+    const curveAt = (dy: number) =>
+      new THREE.CatmullRomCurve3(surface.map((v) => v.clone().setY(v.y + dy)));
+    const casing = new THREE.TubeGeometry(curveAt(0.003), segs, 0.0056, 8, false);
+    group.add(
+      new THREE.Mesh(casing, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 })),
+    );
+    const line = new THREE.TubeGeometry(curveAt(0.0046), segs, 0.0032, 8, false);
+    group.add(
+      new THREE.Mesh(
+        line,
+        new THREE.MeshStandardMaterial({ color: 0xd81f1f, emissive: 0x320505, roughness: 0.55 }),
+      ),
+    );
     // Half-extent of the trace on the ground plane, for camera framing.
     let r = 0;
-    for (const p of pts) r = Math.max(r, Math.hypot(p.x, p.z));
+    for (const p of surface) r = Math.max(r, Math.hypot(p.x, p.z));
     trailRadius = Math.max(r, slabRadius * 0.12);
   }
 

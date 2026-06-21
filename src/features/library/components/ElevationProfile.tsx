@@ -163,11 +163,13 @@ export function ElevationProfile({
   // safe (scrub position is read from locationX, not from gesture-state deltas).
   const pan = useMemo(() => {
     const onTouch = (e: GestureResponderEvent) => {
-      if (width <= 0) return;
+      if (width <= 0 || samples.length === 0) return;
       const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
-      const idx = Math.round(ratio * lastIdx);
+      const idx = Math.min(lastIdx, Math.max(0, Math.round(ratio * lastIdx)));
+      const s = samples[idx];
+      if (!s) return;
       setScrub(idx);
-      const at = interpolateTrackAtDistance(points, samples[idx]!.distanceM);
+      const at = interpolateTrackAtDistance(points, s.distanceM);
       setScrubAt(at);
       onScrub?.(at);
     };
@@ -190,15 +192,19 @@ export function ElevationProfile({
     });
   }, [width, lastIdx, samples, points, onScrub]);
 
-  const active = scrub === null ? null : samples[scrub]!;
-  const marker = scrub === null ? null : pts[scrub];
+  // Guard every index read: `scrub` is an index into a PREVIOUS render's
+  // samples; if `points` (and thus `samples`) shrinks before the next render,
+  // a bare `samples[scrub]!` would be undefined and crash on `.elevationM`.
+  const active = scrub === null ? null : (samples[scrub] ?? null);
+  const marker = scrub === null ? null : (pts[scrub] ?? null);
   // Grade between the scrubbed sample and the previous one.
   const grade =
     scrub === null || scrub === 0
       ? null
       : (() => {
-          const a = samples[scrub - 1]!;
-          const b = samples[scrub]!;
+          const a = samples[scrub - 1];
+          const b = samples[scrub];
+          if (!a || !b) return null;
           const dd = b.distanceM - a.distanceM;
           return dd > 0 ? ((b.elevationM - a.elevationM) / dd) * 100 : 0;
         })();

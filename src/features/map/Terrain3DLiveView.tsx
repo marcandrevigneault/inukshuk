@@ -98,26 +98,33 @@ function addPolyline(
   let run: THREE.Vector3[] = [];
   const flush = () => {
     if (run.length >= 2) {
-      const tube = new THREE.TubeGeometry(
-        new THREE.CatmullRomCurve3(run),
-        Math.min(900, run.length * 6),
-        radius,
-        6,
-        false,
+      const segs = Math.min(900, run.length * 6);
+      // White casing hugging the surface + the coloured line riding on top — a
+      // clean cased drape that reads like a route, not a thin floating wire.
+      const curveAt = (dy: number) =>
+        new THREE.CatmullRomCurve3(run.map((v) => v.clone().setY(v.y + dy)));
+      const casing = new THREE.TubeGeometry(curveAt(0.003), segs, radius * 1.7, 6, false);
+      group.add(
+        new THREE.Mesh(casing, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 })),
       );
-      // Unlit so the route reads as a crisp, consistently bright line on the
-      // terrain (like a drawn track) rather than a dull shaded tube.
-      group.add(new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color })));
+      const tube = new THREE.TubeGeometry(curveAt(0.0046), segs, radius, 6, false);
+      group.add(
+        new THREE.Mesh(
+          tube,
+          new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.25,
+            roughness: 0.55,
+          }),
+        ),
+      );
     }
     run = [];
   };
   for (const [lng, lat] of coords) {
-    if (inBox(bbox, lng, lat)) {
-      // Lift a hair above the surface so the fine line drapes on top, not buried.
-      const v = project(lng, lat);
-      v.y += 0.006;
-      run.push(v);
-    } else flush();
+    if (inBox(bbox, lng, lat)) run.push(project(lng, lat));
+    else flush();
   }
   flush();
 }

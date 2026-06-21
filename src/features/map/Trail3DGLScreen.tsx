@@ -388,8 +388,16 @@ export function Trail3DGLScreen({ trackId }: Props) {
         <View style={[styles.glBox, { paddingTop: insets.top }]}>
           {trailViewMode === '3d' ? (
             <GLView style={styles.fill} onContextCreate={onContextCreate} {...pan.panHandlers} />
+          ) : points && points.length > 0 ? (
+            // Mount the 2D map only once points are loaded — a MapLibre GeoJSON
+            // source created with empty data doesn't reliably pick up a later
+            // update, which is why the trace previously appeared only after a
+            // 2D/3D toggle forced a remount.
+            <Trail2DView points={points} notes={notes} />
           ) : (
-            <Trail2DView points={points ?? []} notes={notes} />
+            <View style={styles.center} pointerEvents="none">
+              <ActivityIndicator size="large" />
+            </View>
           )}
           {trailViewMode === '3d' && status === 'loading' && (
             <View style={styles.center} pointerEvents="none">

@@ -1,4 +1,6 @@
 import { PdfRasterizerProvider } from '@features/map/PdfRasterizer';
+import { ImportFeedbackSnackbar } from '@features/share/ImportFeedbackSnackbar';
+import { useIncomingFile } from '@features/share/useIncomingFile';
 import { useLibraryStore } from '@state/libraryStore';
 import { useSettingsStore } from '@state/settingsStore';
 import { darkTheme, lightTheme } from '@ui/theme';
@@ -22,6 +24,8 @@ export default function RootLayout() {
     void hydrateSettings();
   }, [hydrateLibrary, hydrateSettings]);
 
+  useIncomingFile();
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -37,6 +41,7 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="trail3d/[id]" />
             </Stack>
+            <ImportFeedbackSnackbar />
           </PdfRasterizerProvider>
         </PaperProvider>
       </SafeAreaProvider>

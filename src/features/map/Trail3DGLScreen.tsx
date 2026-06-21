@@ -14,9 +14,10 @@ import {
   formatSpeed,
 } from '@lib/format';
 import { useLibraryStore } from '@state/libraryStore';
+import { useSettingsStore } from '@state/settingsStore';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, PanResponder, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
@@ -25,6 +26,7 @@ import {
   Dialog,
   IconButton,
   Portal,
+  SegmentedButtons,
   Snackbar,
   Surface,
   Text,
@@ -37,6 +39,7 @@ import { fetchBasemapTexture, fetchHeightmap, type Basemap, type Heightmap } fro
 import { exportTrailPdf } from '../library/exportTrailPdf';
 import { buildTerrain, type TerrainBuild } from './terrainScene';
 import { ElevationProfile } from '../library/components/ElevationProfile';
+import { Trail2DView } from './Trail2DView';
 import { useTimedSnackbar } from '../common/useTimedSnackbar';
 
 interface Props {
@@ -91,6 +94,9 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const addTrackNote = useLibraryStore((s) => s.addTrackNote);
   const updateTrackNote = useLibraryStore((s) => s.updateTrackNote);
   const removeTrackNote = useLibraryStore((s) => s.removeTrackNote);
+
+  const trailViewMode = useSettingsStore((s) => s.trailViewMode);
+  const setSetting = useSettingsStore((s) => s.set);
 
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -167,6 +173,25 @@ export function Trail3DGLScreen({ trackId }: Props) {
 
   const fileUri = track?.fileUri;
   const bbox = track?.stats.bbox;
+
+  // Load the trail points up front so the 2D view (and the profile/notes section
+  // below) work even when the GL context — which also loads them — is not mounted.
+  useEffect(() => {
+    if (!fileUri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const gpx = await storage.readFileText(fileUri);
+        const pts = parseGpx(gpx).points;
+        if (!cancelled) setPoints(pts);
+      } catch {
+        /* the 3D path surfaces load errors via status; 2D simply shows no line */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileUri]);
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
     try {
@@ -361,14 +386,18 @@ export function Trail3DGLScreen({ trackId }: Props) {
     <View style={styles.fill}>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
         <View style={[styles.glBox, { paddingTop: insets.top }]}>
-          <GLView style={styles.fill} onContextCreate={onContextCreate} {...pan.panHandlers} />
-          {status === 'loading' && (
+          {trailViewMode === '3d' ? (
+            <GLView style={styles.fill} onContextCreate={onContextCreate} {...pan.panHandlers} />
+          ) : (
+            <Trail2DView points={points ?? []} notes={notes} />
+          )}
+          {trailViewMode === '3d' && status === 'loading' && (
             <View style={styles.center} pointerEvents="none">
               <ActivityIndicator size="large" />
               <Text style={styles.loadingText}>Building 3D terrain…</Text>
             </View>
           )}
-          {status === 'error' && (
+          {trailViewMode === '3d' && status === 'error' && (
             <View style={styles.center} pointerEvents="none">
               <Text>Couldn&apos;t load 3D terrain.</Text>
               {errMsg ? (
@@ -395,7 +424,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
             </View>
           </Surface>
 
-          {status === 'ready' && (
+          {trailViewMode === '3d' && status === 'ready' && (
             <View style={styles.basemapBar} pointerEvents="box-none">
               {(['relief', 'map', 'satellite'] as const).map((bm) => (
                 <Button
@@ -413,6 +442,17 @@ export function Trail3DGLScreen({ trackId }: Props) {
               {switching && <ActivityIndicator size={18} style={styles.basemapSpin} />}
             </View>
           )}
+        </View>
+
+        <View style={styles.viewModeBar}>
+          <SegmentedButtons
+            value={trailViewMode}
+            onValueChange={(v) => setSetting('trailViewMode', v as '2d' | '3d')}
+            buttons={[
+              { value: '2d', label: '2D', icon: 'map-outline' },
+              { value: '3d', label: '3D', icon: 'video-3d' },
+            ]}
+          />
         </View>
 
         {points && (
@@ -643,4 +683,5 @@ const styles = StyleSheet.create({
   photoPreviewWrap: { marginTop: 10, alignItems: 'flex-start' },
   photoPreview: { width: '100%', height: 160, borderRadius: 8 },
   photoFull: { width: '100%', height: 360 },
+  viewModeBar: { paddingHorizontal: 16, paddingVertical: 10 },
 });

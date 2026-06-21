@@ -167,6 +167,41 @@ describe('parseGpx hand-written input', () => {
   });
 });
 
+describe('parseGpx waypoints', () => {
+  it('extracts <wpt> name/desc/sym separately from track points', () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+        <wpt lat="46.81" lon="-71.21"><name>Lookout</name><desc>great view</desc><sym>Summit</sym></wpt>
+        <trk><trkseg>
+          <trkpt lat="46.80" lon="-71.20"></trkpt>
+          <trkpt lat="46.82" lon="-71.22"></trkpt>
+        </trkseg></trk>
+      </gpx>`;
+    const doc = parseGpx(xml);
+    expect(doc.points).toHaveLength(2);
+    expect(doc.hasTrackOrRoutePoints).toBe(true);
+    expect(doc.waypoints).toEqual([
+      {
+        latitude: 46.81,
+        longitude: -71.21,
+        name: 'Lookout',
+        description: 'great view',
+        symbol: 'Summit',
+      },
+    ]);
+  });
+
+  it('reports hasTrackOrRoutePoints=false for a waypoint-only file', () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+        <wpt lat="46.81" lon="-71.21"><name>Car</name></wpt>
+      </gpx>`;
+    const doc = parseGpx(xml);
+    expect(doc.hasTrackOrRoutePoints).toBe(false);
+    expect(doc.waypoints).toHaveLength(1);
+  });
+});
+
 describe('parseGpx error handling', () => {
   it('throws on empty input', () => {
     expect(() => parseGpx('')).toThrow();

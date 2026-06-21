@@ -100,50 +100,57 @@ function addPolyline(
     if (run.length >= 2) {
       const tube = new THREE.TubeGeometry(
         new THREE.CatmullRomCurve3(run),
-        Math.min(600, run.length * 4),
+        Math.min(900, run.length * 6),
         radius,
-        5,
+        6,
         false,
       );
-      group.add(
-        new THREE.Mesh(
-          tube,
-          new THREE.MeshStandardMaterial({
-            color,
-            emissive: color,
-            emissiveIntensity: 0.3,
-            roughness: 0.5,
-          }),
-        ),
-      );
+      // Unlit so the route reads as a crisp, consistently bright line on the
+      // terrain (like a drawn track) rather than a dull shaded tube.
+      group.add(new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color })));
     }
     run = [];
   };
   for (const [lng, lat] of coords) {
-    if (inBox(bbox, lng, lat)) run.push(project(lng, lat));
-    else flush();
+    if (inBox(bbox, lng, lat)) {
+      // Lift a hair above the surface so the fine line drapes on top, not buried.
+      const v = project(lng, lat);
+      v.y += 0.006;
+      run.push(v);
+    } else flush();
   }
   flush();
 }
 
-/** A small inukshuk-charcoal pin (head on a pole) for a waypoint. */
+/**
+ * A clean map-pin marker: a charcoal teardrop (round head + tapered point that
+ * touches the surface) with a white dot on the face — reads clearly as a pin from
+ * any orbit angle, instead of a sphere floating on a stick.
+ */
 function waypointPin(): THREE.Group {
   const g = new THREE.Group();
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.022, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0x2d3740, emissive: 0x0a0f14 }),
+  const body = new THREE.MeshStandardMaterial({
+    color: 0x2d3740,
+    emissive: 0x0a0f14,
+    roughness: 0.5,
+  });
+  // Tapered point (cone tip down) from the surface up to the head.
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.1, 18), body);
+  cone.rotation.x = Math.PI; // tip points down
+  cone.position.y = 0.065; // tip ~0.015 above surface, base ~0.115
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.034, 18, 18), body);
+  head.position.y = 0.13;
+  // White face dot for the classic pin look.
+  const dot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.013, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
   );
-  head.position.y = 0.1;
-  const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.005, 0.005, 0.1, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333 }),
-  );
-  pole.position.y = 0.05;
-  g.add(head, pole);
+  dot.position.set(0, 0.13, 0.027);
+  g.add(cone, head, dot);
   return g;
 }
 
-const TRAIL_COLOR = 0x3e7ba0; // saved trails — slate blue (the logo's river)
+const TRAIL_COLOR = 0xe0312b; // saved trails — fine red drape line
 const REC_COLOR = 0xd76b27; // live recording trace — warm orange
 
 /**
@@ -211,7 +218,7 @@ export function Terrain3DLiveView({
     }
     const g = new THREE.Group();
     for (const coords of trailsRef.current)
-      addPolyline(g, coords, project, bbox, TRAIL_COLOR, 0.008);
+      addPolyline(g, coords, project, bbox, TRAIL_COLOR, 0.0042);
     const rec = recordPointsRef.current;
     if (rec.length >= 2) {
       addPolyline(

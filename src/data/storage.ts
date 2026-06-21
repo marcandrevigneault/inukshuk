@@ -136,6 +136,14 @@ export async function downloadBytes(
   return dest.bytes();
 }
 
+/**
+ * Read a file's text from any URI — including the content:// URIs delivered by
+ * Android "Open with" intents (the picker only ever gives us a cached file://).
+ *
+ * Fallback if File.text() can't read content:// on a device:
+ *   import * as LegacyFS from 'expo-file-system/legacy';
+ *   return LegacyFS.readAsStringAsync(uri);
+ */
 export async function readFileText(uri: string): Promise<string> {
   return new File(uri).text();
 }

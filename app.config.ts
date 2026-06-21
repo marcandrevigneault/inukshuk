@@ -26,14 +26,30 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // v1 records in the foreground only (screen kept awake), so no background
       // location mode is declared — keeps store review simple.
       ITSAppUsesNonExemptEncryption: false,
+      // Let Inukshuk appear in iOS "Open in…" for .gpx files (declared now so iOS
+      // is ready; iOS isn't being built yet).
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'GPS Exchange Format',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['com.topografix.gpx'],
+        },
+      ],
+      UTImportedTypeDeclarations: [
+        {
+          UTTypeIdentifier: 'com.topografix.gpx',
+          UTTypeConformsTo: ['public.xml'],
+          UTTypeDescription: 'GPS Exchange Format',
+          UTTypeTagSpecification: { 'public.filename-extension': ['gpx'] },
+        },
+      ],
     },
   },
   android: {
     package: 'com.inukshuk.app',
-    // Display version resets to 1.0.0 for the first alpha release, but versionCode
-    // must keep monotonically increasing on Play (it can't reset) — vc39 (1.0.8)
-    // was already uploaded, so this stays ahead. Bump this each store build.
-    versionCode: 41,
+    // Display version stays 1.0.0 (alpha), but versionCode must keep monotonically
+    // increasing on Play (it can't reset) — bump this each store build.
+    versionCode: 42,
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
       // Cream paper from the logo; the full-bleed foreground covers it, this only
@@ -44,6 +60,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // location permissions, which avoids Play's stricter background-location
     // review.
     permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
+    // Let users open a .gpx with Inukshuk from a file manager / browser. File
+    // managers are inconsistent about GPX's MIME type, so match by MIME AND by
+    // a `.*\\.gpx` path pattern for both content:// and file:// URIs.
+    intentFilters: [
+      {
+        action: 'VIEW',
+        category: ['DEFAULT', 'BROWSABLE'],
+        data: [
+          { scheme: 'content', mimeType: 'application/gpx+xml' },
+          { scheme: 'content', mimeType: 'application/xml' },
+          { scheme: 'content', mimeType: 'application/octet-stream' },
+          { scheme: 'content', pathPattern: '.*\\.gpx' },
+          { scheme: 'file', pathPattern: '.*\\.gpx' },
+        ],
+      },
+    ],
   },
   web: {
     favicon: './assets/favicon.png',

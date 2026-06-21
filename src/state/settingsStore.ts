@@ -28,6 +28,8 @@ export interface Settings {
   minDisplacementM: number;
   /** Preferred elevation-profile chart style. */
   elevationProfileStyle: ElevationProfileStyle;
+  /** Trail detail view: real 3D terrain or a flat 2D map. */
+  trailViewMode: '2d' | '3d';
 }
 
 const DEFAULTS: Settings = {
@@ -36,6 +38,7 @@ const DEFAULTS: Settings = {
   rotateMapWithHeading: false,
   minDisplacementM: 5,
   elevationProfileStyle: 'gradient',
+  trailViewMode: '3d',
 };
 
 interface SettingsState extends Settings {
@@ -66,6 +69,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       rotateMapWithHeading,
       minDisplacementM,
       elevationProfileStyle,
+      trailViewMode,
     } = get();
     persist({
       tileUrl,
@@ -73,6 +77,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       rotateMapWithHeading,
       minDisplacementM,
       elevationProfileStyle,
+      trailViewMode,
     });
   },
 

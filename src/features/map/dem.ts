@@ -59,8 +59,10 @@ export interface Heightmap {
  * Fetch the free Terrarium DEM tiles covering `bounds`, decode their elevation,
  * and downsample to a `grid × grid` heightmap for a 3D mesh. Network-bound.
  */
-export async function fetchHeightmap(bounds: BoundingBox, grid = 192): Promise<Heightmap> {
-  const z = pickTerrainZoom(bounds, 4);
+export async function fetchHeightmap(bounds: BoundingBox, grid = 256): Promise<Heightmap> {
+  // Allow more DEM tiles per side → a higher zoom level → finer elevation detail
+  // (and a sharper basemap drape, which reuses the same tile range/zoom).
+  const z = pickTerrainZoom(bounds, 6);
   const range = tileRangeForBbox(bounds, z);
   const fullW = (range.maxX - range.minX + 1) * TILE;
   const fullH = (range.maxY - range.minY + 1) * TILE;

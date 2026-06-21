@@ -127,15 +127,18 @@ export function buildTerrain(
   const slabRadius = Math.max(spanXn, spanZn) * 1.15;
   let trailRadius = slabRadius;
   if (points.length >= 2) {
-    const pts = points.map((p) => project(p.longitude, p.latitude));
+    // Lift the trace a hair above the surface so the fine line reads as a crisp
+    // red drape instead of a fat tube half-buried in the mesh.
+    const pts = points.map((p) => {
+      const v = project(p.longitude, p.latitude);
+      v.y += 0.006;
+      return v;
+    });
     const curve = new THREE.CatmullRomCurve3(pts);
-    const tube = new THREE.TubeGeometry(curve, Math.min(800, pts.length * 4), 0.009, 6, false);
-    group.add(
-      new THREE.Mesh(
-        tube,
-        new THREE.MeshStandardMaterial({ color: 0x3e7ba0, emissive: 0x0a1622, roughness: 0.4 }),
-      ),
-    );
+    const tube = new THREE.TubeGeometry(curve, Math.min(1400, pts.length * 6), 0.0038, 8, false);
+    // Unlit so the route reads as a consistently bright red line regardless of
+    // terrain shading (like a drawn track), not a dull shaded blue tube.
+    group.add(new THREE.Mesh(tube, new THREE.MeshBasicMaterial({ color: 0xe0312b })));
     // Half-extent of the trace on the ground plane, for camera framing.
     let r = 0;
     for (const p of pts) r = Math.max(r, Math.hypot(p.x, p.z));

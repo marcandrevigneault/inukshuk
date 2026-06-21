@@ -51,6 +51,7 @@ import { useCompass } from './useCompass';
 import { useLocationTracking } from './useLocation';
 import { usePdfOverlays } from './usePdfOverlay';
 import { useTrackOverlays } from './useTrackOverlays';
+import { useTimedSnackbar } from '../common/useTimedSnackbar';
 
 /** Base-map choices shown in the layers menu, each with its own coloured icon. */
 const BASEMAPS: {
@@ -162,7 +163,7 @@ export function MapScreen() {
   const removeWaypoint = useRecorderStore((s) => s.removeWaypoint);
 
   const [elapsedS, setElapsedS] = useState(0);
-  const [snack, setSnack] = useState<string | null>(null);
+  const { message: snack, show: showSnack, dismiss: dismissSnack } = useTimedSnackbar(3000);
 
   // Tapping a live waypoint marker opens an editor for its note + photo.
   const [editWpId, setEditWpId] = useState<string | null>(null);
@@ -257,7 +258,7 @@ export function MapScreen() {
   const handleStop = async () => {
     const track = await stop();
     setElapsedS(0);
-    setSnack(
+    showSnack(
       track && track.points.length > 0
         ? `Saved "${track.name}"`
         : 'Recording discarded (no points)',
@@ -492,8 +493,8 @@ export function MapScreen() {
             onStop={handleStop}
             onWaypoint={() => {
               const n = addWaypoint();
-              if (n > 0) setSnack(`Waypoint ${n} dropped — tap it to add a note or photo`);
-              else setSnack('Waiting for a GPS fix before dropping a waypoint');
+              if (n > 0) showSnack(`Waypoint ${n} dropped — tap it to add a note or photo`);
+              else showSnack('Waiting for a GPS fix before dropping a waypoint');
             }}
           />
         </View>
@@ -572,7 +573,11 @@ export function MapScreen() {
         </Dialog>
       </Portal>
 
-      <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3000}>
+      <Snackbar
+        visible={snack !== null}
+        onDismiss={dismissSnack}
+        duration={Number.POSITIVE_INFINITY}
+      >
         {snack ?? ''}
       </Snackbar>
       {overlayError && (

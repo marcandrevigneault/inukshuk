@@ -39,6 +39,7 @@ import { bundleCounts } from '@core/library/bundles';
 import { folderItemCount, groupByFolder } from '@core/library/folders';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ElevationProfile } from './components/ElevationProfile';
+import { useTimedSnackbar } from '@features/common/useTimedSnackbar';
 import { pickAndImportGpxFiles } from './importGpx';
 import { pickAndImportMaps } from './importMap';
 
@@ -70,7 +71,7 @@ export function LibraryScreen() {
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
 
   const [busy, setBusy] = useState(false);
-  const [snack, setSnack] = useState<string | null>(null);
+  const { message: snack, show: showSnack, dismiss: dismissSnack } = useTimedSnackbar(3500);
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
   const [expandedMap, setExpandedMap] = useState<string | null>(null);
   const [trackPoints, setTrackPoints] = useState<Record<string, TrackPoint[]>>({});
@@ -95,11 +96,11 @@ export function LibraryScreen() {
       // Add in picked order (addMap prepends, so add last-first to preserve it).
       [...result.docs].reverse().forEach(addMap);
       const n = result.docs.length;
-      setSnack(
+      showSnack(
         `Imported ${n} map${n === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}`,
       );
     } else if (result.kind === 'error') {
-      setSnack(`Import failed: ${result.message}`);
+      showSnack(`Import failed: ${result.message}`);
     }
   };
 
@@ -112,11 +113,11 @@ export function LibraryScreen() {
         .reverse()
         .forEach(({ track, fileUri, notes }) => addTrack(track, fileUri, notes));
       const n = result.items.length;
-      setSnack(
+      showSnack(
         `Imported ${n} trail${n === 1 ? '' : 's'}${result.failed ? `, ${result.failed} failed` : ''}`,
       );
     } else if (result.kind === 'error') {
-      setSnack(`Import failed: ${result.message}`);
+      showSnack(`Import failed: ${result.message}`);
     }
   };
 
@@ -155,7 +156,7 @@ export function LibraryScreen() {
   const onActivateBundle = (id: string, name: string) => {
     const trackIds = activateBundle(id); // turns on member maps' overlays
     setActiveTrackIds(trackIds); // and member trails
-    setSnack(`Activated "${name}"`);
+    showSnack(`Activated "${name}"`);
     router.navigate('/');
   };
 
@@ -171,7 +172,7 @@ export function LibraryScreen() {
         const { points } = parseGpx(gpx);
         setTrackPoints((cache) => ({ ...cache, [id]: points }));
       } catch {
-        setSnack('Could not load elevation');
+        showSnack('Could not load elevation');
         setExpandedTrack(null);
       }
     }
@@ -181,7 +182,7 @@ export function LibraryScreen() {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(fileUri, { mimeType: 'application/gpx+xml', UTI: 'public.xml' });
     } else {
-      setSnack('Sharing is not available on this device');
+      showSnack('Sharing is not available on this device');
     }
   };
 
@@ -727,7 +728,11 @@ export function LibraryScreen() {
         </Dialog>
       </Portal>
 
-      <Snackbar visible={snack !== null} onDismiss={() => setSnack(null)} duration={3500}>
+      <Snackbar
+        visible={snack !== null}
+        onDismiss={dismissSnack}
+        duration={Number.POSITIVE_INFINITY}
+      >
         {snack ?? ''}
       </Snackbar>
     </View>

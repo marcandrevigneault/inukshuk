@@ -53,8 +53,8 @@ async function importOne(asset: DocumentPicker.DocumentPickerAsset): Promise<Imp
 /** Import a GPX from an arbitrary opened URI (e.g. an Android "Open with" intent). */
 export async function importGpxFromUri(uri: string, fallbackName: string): Promise<ImportedTrack> {
   const id = storage.newId();
-  const text = await storage.readTextFromUri(uri);
-  const fileUri = storage.writeGpxText(id, text);
+  const text = await storage.readFileText(uri);
+  const fileUri = storage.writeTrackGpx(id, text);
   return buildFromGpxText(text, id, fileUri, fallbackName);
 }
 

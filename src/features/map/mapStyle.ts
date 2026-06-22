@@ -37,6 +37,14 @@ function baseSource(
 }
 
 /**
+ * The raster tile-URL template ({z}/{x}/{y} or {z}/{y}/{x}) for a basemap — used
+ * to fetch a single preview tile without spinning up a whole MapLibre instance.
+ */
+export function basemapTileUrl(basemap: MapBasemap, tileUrl: string): string {
+  return baseSource(basemap, tileUrl).tiles[0] ?? tileUrl;
+}
+
+/**
  * A minimal MapLibre style that renders a raster base layer (OSM streets,
  * satellite imagery, or a topographic relief map — see {@link baseSource}).
  * Raster (not vector) keeps us free of any API key or paid tile service. The OSM

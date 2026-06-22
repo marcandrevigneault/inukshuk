@@ -2,22 +2,32 @@
  * RegionSelectOverlay — an absolutely-positioned overlay over the map that
  * lets the user drag a rectangle to define a region for offline tile download.
  *
- * Four corner handles resize the box. A bottom bar shows the live tile/size
- * estimate and Download / Cancel actions. No MapLibre import: geo conversion
- * is injected via the `toGeo` prop.
+ * Four corner handles resize the box. A compact bottom sheet shows, per basemap,
+ * a live preview of the drawn area with a checkbox, a quality (max-zoom) selector,
+ * the summed tile/size estimate, and Download / Cancel. No MapLibre import: geo
+ * conversion is injected via the `toGeo` prop.
  */
 
-import { tileCountForRegion, overviewZoomFor, estimateBytes } from '@core/geo/tiles';
+import {
+  tileCountForRegion,
+  overviewZoomFor,
+  estimateBytesForBasemaps,
+  type Basemap,
+} from '@core/geo/tiles';
 import type { BoundingBox } from '@core/models';
 import { formatBytes } from '@lib/format';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, StyleSheet, View } from 'react-native';
-import { Button, Surface, Text, useTheme } from 'react-native-paper';
+import { PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { Button, Icon, SegmentedButtons, Surface, Text, useTheme } from 'react-native-paper';
+
+import { RegionPreviewThumb } from './RegionPreviewThumb';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+type Quality = 'standard' | 'high' | 'max';
 
 interface Props {
   /**
@@ -29,8 +39,11 @@ interface Props {
     x: number;
     y: number;
   }) => Promise<[number, number] | null> | [number, number] | null;
-  basemap: 'map' | 'satellite';
-  onConfirm: (bounds: BoundingBox, minZoom: number, maxZoom: number) => void;
+  /** The currently-active basemap — pre-checked in the layer picker. */
+  activeBasemap: Basemap;
+  /** OSM tile URL (from settings) used to build the preview thumbnails. */
+  tileUrl: string;
+  onConfirm: (bounds: BoundingBox, basemaps: Basemap[], minZoom: number, maxZoom: number) => void;
   onCancel: () => void;
 }
 
@@ -42,12 +55,10 @@ interface Box {
   h: number; // height (always > 0)
 }
 
-interface Estimate {
+/** The region geometry derived (async) from the box; quality/layers are applied on top. */
+interface Geo {
   bbox: BoundingBox;
-  tiles: number;
-  bytes: number;
   minZoom: number;
-  maxZoom: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,15 +67,34 @@ interface Estimate {
 
 const HANDLE_SIZE = 28; // tap target for each corner handle (px)
 const MIN_BOX = 48; // minimum box dimension (px)
-const MAX_TILES = 25_000;
-const MAX_ZOOM = 17;
-const DEBOUNCE_MS = 120; // delay before recomputing estimate on drag
+const MAX_TILES = 25_000; // hard cap on total tiles (summed across layers)
+const DEBOUNCE_MS = 120; // delay before recomputing geometry on drag
+const THUMB = 60; // preview thumbnail size (px)
+
+const QUALITY_ZOOM: Record<Quality, number> = { standard: 15, high: 16, max: 17 };
+const QUALITY_BUTTONS: { value: Quality; label: string }[] = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
+];
+
+const LAYERS: { key: Basemap; label: string }[] = [
+  { key: 'map', label: 'Map' },
+  { key: 'satellite', label: 'Satellite' },
+  { key: 'relief', label: 'Relief' },
+];
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Props): ReactElement {
+export function RegionSelectOverlay({
+  toGeo,
+  activeBasemap,
+  tileUrl,
+  onConfirm,
+  onCancel,
+}: Props): ReactElement {
   const theme = useTheme();
 
   // Overlay dimensions, populated via onLayout.
@@ -79,40 +109,44 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
   // Box snapshot at gesture start (written in onGrant, read in onMove).
   const startBox = useRef<Box>({ x: 0, y: 0, w: 0, h: 0 });
 
-  // Debounce timer for estimate recomputation.
+  // Debounce timer for geometry recomputation.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Sequence counter: discard stale async toGeo results (last-write-wins).
   const seqRef = useRef(0);
 
-  // Live estimate state.
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
+  // Region geometry (bbox + overview zoom), recomputed from the box.
+  const [geo, setGeo] = useState<Geo | null>(null);
+
+  // Which basemaps to download (the active one is pre-checked) and the quality.
+  const [selected, setSelected] = useState<Record<Basemap, boolean>>({
+    map: activeBasemap === 'map',
+    satellite: activeBasemap === 'satellite',
+    relief: activeBasemap === 'relief',
+  });
+  const [quality, setQuality] = useState<Quality>('high');
 
   // ---------------------------------------------------------------------------
-  // Initialise box once overlay dimensions are known.
+  // Initialise box once overlay dimensions are known. Bias it upward so it sits
+  // above the bottom sheet, keeping the map and box visible while choosing.
   // ---------------------------------------------------------------------------
 
   const initBox = useCallback((ow: number, oh: number) => {
     if (initialised.current || ow === 0 || oh === 0) return;
     initialised.current = true;
-    const bw = ow * 0.6;
-    const bh = oh * 0.6;
-    const initial: Box = {
-      x: (ow - bw) / 2,
-      y: (oh - bh) / 2,
-      w: bw,
-      h: bh,
-    };
+    const bw = ow * 0.62;
+    const bh = oh * 0.44;
+    const initial: Box = { x: (ow - bw) / 2, y: oh * 0.1, w: bw, h: bh };
     boxRef.current = initial;
     setBox(initial);
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Estimate recomputation — debounced, last-write-wins for async toGeo.
-  // Memoised with toGeo + basemap in deps; the PanResponders call the latest
-  // version via `recomputeCallbackRef` (synced in an effect below).
+  // Geometry recomputation — debounced, last-write-wins for async toGeo. The
+  // quality (max zoom) and selected layers are applied synchronously below, so
+  // changing them never needs another toGeo round-trip.
   // ---------------------------------------------------------------------------
 
-  const recomputeEstimate = useCallback(
+  const recomputeGeo = useCallback(
     (b: Box) => {
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
 
@@ -129,9 +163,7 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
           ]);
 
           if (seq !== seqRef.current) return; // stale — discard
-
-          // Bounds/layout not ready — keep the previous estimate rather than
-          // computing a degenerate bbox from a [0,0] sentinel.
+          // Bounds/layout not ready — keep the previous geometry.
           if (tlResult === null || brResult === null) return;
 
           const [lng0, lat0] = tlResult;
@@ -144,41 +176,51 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
             maxLng: Math.max(lng0, lng1),
           };
 
-          const minZoom = overviewZoomFor(bbox);
-          const tiles = tileCountForRegion(bbox, minZoom, MAX_ZOOM);
-          const bytes = estimateBytes(tiles, basemap);
-
-          setEstimate({ bbox, tiles, bytes, minZoom, maxZoom: MAX_ZOOM });
+          setGeo({ bbox, minZoom: overviewZoomFor(bbox) });
         };
 
         run().catch(() => {
-          /* toGeo failure — keep previous estimate */
+          /* toGeo failure — keep previous geometry */
         });
       }, DEBOUNCE_MS);
     },
-    [toGeo, basemap],
+    [toGeo],
   );
 
-  // A stable ref that PanResponder gesture handlers (memoised once) can call
-  // to always invoke the current version of recomputeEstimate. The ref itself
-  // is only written inside an effect, never during render.
-  const recomputeCallbackRef = useRef(recomputeEstimate);
+  // A stable ref so the once-memoised PanResponders always call the latest version.
+  const recomputeCallbackRef = useRef(recomputeGeo);
   useEffect(() => {
-    recomputeCallbackRef.current = recomputeEstimate;
-  }, [recomputeEstimate]);
+    recomputeCallbackRef.current = recomputeGeo;
+  }, [recomputeGeo]);
 
-  // Recompute the estimate whenever the box changes — including the initial box
-  // set by `initBox` once the overlay's onLayout reports its size (the previous
-  // version keyed on `recomputeEstimate` and read `boxRef.current.w`, which was
-  // still 0 on mount, so the first estimate never fired and it stuck on
-  // "Calculating…"). The debounce coalesces the rapid box updates during a drag.
+  // Recompute geometry whenever the box changes (including the initial box). The
+  // debounce coalesces the rapid updates during a drag.
   useEffect(() => {
     if (box.w > 0) recomputeCallbackRef.current(box);
   }, [box]);
 
   // ---------------------------------------------------------------------------
-  // PanResponder — top-left corner.
-  // Refs are read on touch events only, never during render.
+  // Derived estimate — geometry × quality × selected layers (all synchronous).
+  // ---------------------------------------------------------------------------
+
+  const maxZoom = QUALITY_ZOOM[quality];
+  const selectedBasemaps = useMemo(
+    () => LAYERS.map((l) => l.key).filter((k) => selected[k]),
+    [selected],
+  );
+  const perLayerTiles = geo ? tileCountForRegion(geo.bbox, geo.minZoom, maxZoom) : 0;
+  const totalTiles = perLayerTiles * selectedBasemaps.length;
+  const totalBytes = geo ? estimateBytesForBasemaps(perLayerTiles, selectedBasemaps) : 0;
+  const noneSelected = selectedBasemaps.length === 0;
+  const tooLarge = totalTiles > MAX_TILES;
+  const canDownload = geo !== null && !noneSelected && !tooLarge;
+
+  const toggleLayer = useCallback((key: Basemap) => {
+    setSelected((s) => ({ ...s, [key]: !s[key] }));
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // PanResponders — one per corner. Refs are read on touch events only.
   // ---------------------------------------------------------------------------
 
   const panTL = useMemo(
@@ -214,10 +256,6 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
     [],
   );
 
-  // ---------------------------------------------------------------------------
-  // PanResponder — top-right corner.
-  // ---------------------------------------------------------------------------
-
   const panTR = useMemo(
     () =>
       // eslint-disable-next-line react-hooks/refs
@@ -248,10 +286,6 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
       }),
     [],
   );
-
-  // ---------------------------------------------------------------------------
-  // PanResponder — bottom-left corner.
-  // ---------------------------------------------------------------------------
 
   const panBL = useMemo(
     () =>
@@ -284,10 +318,6 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
     [],
   );
 
-  // ---------------------------------------------------------------------------
-  // PanResponder — bottom-right corner.
-  // ---------------------------------------------------------------------------
-
   const panBR = useMemo(
     () =>
       // eslint-disable-next-line react-hooks/refs
@@ -318,23 +348,25 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
   );
 
   // ---------------------------------------------------------------------------
-  // Confirm handler.
+  // Confirm.
   // ---------------------------------------------------------------------------
 
   const handleConfirm = useCallback(() => {
-    if (!estimate || estimate.tiles > MAX_TILES) return;
-    onConfirm(estimate.bbox, estimate.minZoom, estimate.maxZoom);
-  }, [estimate, onConfirm]);
+    if (!geo || noneSelected || tooLarge) return;
+    onConfirm(geo.bbox, selectedBasemaps, geo.minZoom, maxZoom);
+  }, [geo, noneSelected, tooLarge, onConfirm, selectedBasemaps, maxZoom]);
 
   // ---------------------------------------------------------------------------
   // Render.
   // ---------------------------------------------------------------------------
 
-  const tooLarge = (estimate?.tiles ?? 0) > MAX_TILES;
-  const estimateLabel =
-    estimate !== null
-      ? `≈ ${estimate.tiles.toLocaleString()} tiles · ${formatBytes(estimate.bytes)}`
-      : 'Calculating…';
+  const summary = noneSelected
+    ? 'Select at least one layer'
+    : tooLarge
+      ? 'Too large — shrink the box or lower the quality'
+      : geo === null
+        ? 'Calculating…'
+        : `≈ ${totalTiles.toLocaleString()} tiles · ${formatBytes(totalBytes)}`;
 
   return (
     <View
@@ -349,28 +381,23 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
       {/* Dimmed areas outside the selection box */}
       {box.w > 0 && box.h > 0 && (
         <>
-          {/* Top strip */}
           <View
             style={[styles.dim, { top: 0, left: 0, right: 0, height: box.y }]}
             pointerEvents="none"
           />
-          {/* Bottom strip */}
           <View
             style={[styles.dim, { top: box.y + box.h, left: 0, right: 0, bottom: 0 }]}
             pointerEvents="none"
           />
-          {/* Left strip (middle row) */}
           <View
             style={[styles.dim, { top: box.y, left: 0, width: box.x, height: box.h }]}
             pointerEvents="none"
           />
-          {/* Right strip (middle row) */}
           <View
             style={[styles.dim, { top: box.y, left: box.x + box.w, right: 0, height: box.h }]}
             pointerEvents="none"
           />
 
-          {/* Selection border */}
           <View
             style={[
               styles.selectionBorder,
@@ -379,15 +406,12 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
             pointerEvents="none"
           />
 
-          {/* Corner handle — TL */}
           <View
             style={[styles.handle, { left: box.x - HANDLE_SIZE / 2, top: box.y - HANDLE_SIZE / 2 }]}
             {...panTL.panHandlers}
           >
             <View style={[styles.handleDot, { backgroundColor: theme.colors.primary }]} />
           </View>
-
-          {/* Corner handle — TR */}
           <View
             style={[
               styles.handle,
@@ -397,8 +421,6 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
           >
             <View style={[styles.handleDot, { backgroundColor: theme.colors.primary }]} />
           </View>
-
-          {/* Corner handle — BL */}
           <View
             style={[
               styles.handle,
@@ -408,15 +430,10 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
           >
             <View style={[styles.handleDot, { backgroundColor: theme.colors.primary }]} />
           </View>
-
-          {/* Corner handle — BR */}
           <View
             style={[
               styles.handle,
-              {
-                left: box.x + box.w - HANDLE_SIZE / 2,
-                top: box.y + box.h - HANDLE_SIZE / 2,
-              },
+              { left: box.x + box.w - HANDLE_SIZE / 2, top: box.y + box.h - HANDLE_SIZE / 2 },
             ]}
             {...panBR.panHandlers}
           >
@@ -425,20 +442,77 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
         </>
       )}
 
-      {/* Bottom bar */}
-      <Surface style={styles.bar} elevation={4}>
-        <Text variant="bodyMedium" style={styles.estimateText}>
-          {tooLarge ? 'Too large — shrink the box' : estimateLabel}
+      {/* Compact bottom sheet */}
+      <Surface style={styles.sheet} elevation={4}>
+        <Text variant="titleSmall" style={styles.title}>
+          Download offline area
         </Text>
-        <View style={styles.barButtons}>
-          <Button mode="outlined" onPress={onCancel} style={styles.barBtn}>
+
+        {/* Layer pickers with live previews */}
+        <View style={styles.layersRow}>
+          {LAYERS.map((layer) => {
+            const on = selected[layer.key];
+            return (
+              <Pressable
+                key={layer.key}
+                onPress={() => toggleLayer(layer.key)}
+                style={styles.layer}
+              >
+                <View>
+                  <RegionPreviewThumb
+                    bbox={geo?.bbox ?? null}
+                    basemap={layer.key}
+                    tileUrl={tileUrl}
+                    size={THUMB}
+                  />
+                  <View
+                    style={[
+                      styles.check,
+                      {
+                        backgroundColor: on ? theme.colors.primary : 'rgba(0,0,0,0.35)',
+                        borderColor: theme.colors.surface,
+                      },
+                    ]}
+                  >
+                    {on && <Icon source="check" size={14} color={theme.colors.onPrimary} />}
+                  </View>
+                  {on && (
+                    <View
+                      style={[styles.selectedRing, { borderColor: theme.colors.primary }]}
+                      pointerEvents="none"
+                    />
+                  )}
+                </View>
+                <Text variant="labelSmall" style={styles.layerLabel}>
+                  {layer.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Quality */}
+        <SegmentedButtons
+          value={quality}
+          onValueChange={(v) => setQuality(v as Quality)}
+          density="small"
+          buttons={QUALITY_BUTTONS}
+          style={styles.quality}
+        />
+
+        {/* Estimate + actions */}
+        <Text variant="bodyMedium" style={styles.summary}>
+          {summary}
+        </Text>
+        <View style={styles.actions}>
+          <Button mode="outlined" onPress={onCancel} style={styles.actionBtn}>
             Cancel
           </Button>
           <Button
             mode="contained"
             onPress={handleConfirm}
-            disabled={tooLarge || estimate === null}
-            style={styles.barBtn}
+            disabled={!canDownload}
+            style={styles.actionBtn}
           >
             Download
           </Button>
@@ -453,22 +527,9 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  dim: {
-    position: 'absolute',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  selectionBorder: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  dim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.45)' },
+  selectionBorder: { position: 'absolute', borderWidth: 2, borderColor: '#ffffff' },
   handle: {
     position: 'absolute',
     width: HANDLE_SIZE,
@@ -484,24 +545,47 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#ffffff',
   },
-  bar: {
+  sheet: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
     gap: 8,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
-  estimateText: {
-    textAlign: 'center',
-  },
-  barButtons: {
+  title: { textAlign: 'center' },
+  layersRow: {
     flexDirection: 'row',
+    justifyContent: 'space-evenly',
+  },
+  layer: { alignItems: 'center', gap: 4 },
+  check: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
   },
-  barBtn: {
-    minWidth: 110,
+  selectedRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 2,
+    borderRadius: 8,
   },
+  layerLabel: { textAlign: 'center' },
+  quality: { marginTop: 2 },
+  summary: { textAlign: 'center' },
+  actions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
+  actionBtn: { minWidth: 120 },
 });

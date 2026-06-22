@@ -43,10 +43,34 @@ export function overviewZoomFor(b: BoundingBox, maxTilesPerSide = 2): number {
   return 17;
 }
 
-// Rough average compressed tile sizes: Esri satellite JPEG tiles are heavier
-// than OSM/street PNG tiles. Used only for a pre-download size estimate.
-const AVG_BYTES: Record<'map' | 'satellite', number> = { map: 18_000, satellite: 30_000 };
+/**
+ * The center tile {x,y,z} for a region, at the highest zoom where the region
+ * still fits within a single tile per side — so one tile roughly frames the box.
+ * Used to fetch a lightweight preview image of the area.
+ */
+export function centerTileForRegion(b: BoundingBox): { x: number; y: number; z: number } {
+  const z = overviewZoomFor(b, 1);
+  const cLng = (b.minLng + b.maxLng) / 2;
+  const cLat = (b.minLat + b.maxLat) / 2;
+  return { x: lngToX(cLng, z), y: latToY(cLat, z), z };
+}
 
-export function estimateBytes(tileCount: number, basemap: 'map' | 'satellite'): number {
+/** The downloadable raster basemaps. */
+export type Basemap = 'map' | 'satellite' | 'relief';
+
+// Rough average compressed tile sizes: Esri satellite/relief JPEG tiles are
+// heavier than OSM/street PNG tiles. Used only for a pre-download size estimate.
+const AVG_BYTES: Record<Basemap, number> = { map: 18_000, satellite: 30_000, relief: 28_000 };
+
+export function estimateBytes(tileCount: number, basemap: Basemap): number {
   return tileCount * AVG_BYTES[basemap];
+}
+
+/**
+ * Total bytes to download a region for several basemaps at once: the tile
+ * geometry is identical per basemap, so it's `tileCount` summed against each
+ * basemap's average tile size.
+ */
+export function estimateBytesForBasemaps(tileCount: number, basemaps: readonly Basemap[]): number {
+  return basemaps.reduce((sum, b) => sum + estimateBytes(tileCount, b), 0);
 }

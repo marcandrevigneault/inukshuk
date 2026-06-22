@@ -430,20 +430,23 @@ export function MapScreen() {
       {selecting && !terrain3d && (
         <RegionSelectOverlay
           toGeo={toGeo}
-          basemap={basemap === 'satellite' ? 'satellite' : 'map'}
+          activeBasemap={basemap}
+          tileUrl={tileUrl}
           onCancel={() => setSelecting(false)}
-          onConfirm={(bounds, minZoom, maxZoom) => {
+          onConfirm={(bounds, basemaps, minZoom, maxZoom) => {
             setSelecting(false);
             void (async () => {
               try {
-                await useOfflineStore.getState().download({
-                  id: storage.newId(),
+                await useOfflineStore.getState().downloadMany({
+                  baseId: storage.newId(),
                   label: 'Offline map',
-                  basemap,
-                  styleJSON: JSON.stringify(buildOsmStyle(tileUrl, false, basemap)),
                   bounds,
                   minZoom,
                   maxZoom,
+                  layers: basemaps.map((bm) => ({
+                    basemap: bm,
+                    styleJSON: JSON.stringify(buildOsmStyle(tileUrl, false, bm)),
+                  })),
                 });
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -696,7 +699,7 @@ export function MapScreen() {
       )}
       {downloadProgress !== null && (
         <Snackbar visible onDismiss={() => undefined} duration={Number.POSITIVE_INFINITY}>
-          {`Downloading map… ${downloadProgress.pct}%`}
+          {`Downloading ${downloadProgress.label}… ${downloadProgress.pct}%`}
         </Snackbar>
       )}
     </View>

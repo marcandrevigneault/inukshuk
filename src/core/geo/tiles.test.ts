@@ -1,4 +1,10 @@
-import { tileCountForRegion, overviewZoomFor, estimateBytes, tileSpanAtZoom } from './tiles';
+import {
+  tileCountForRegion,
+  overviewZoomFor,
+  estimateBytes,
+  estimateBytesForBasemaps,
+  tileSpanAtZoom,
+} from './tiles';
 import type { BoundingBox } from '@core/models';
 
 const world: BoundingBox = { minLat: -85, minLng: -180, maxLat: 85, maxLng: 180 };
@@ -38,4 +44,13 @@ it('estimateBytes scales with tile count and basemap', () => {
   expect(estimateBytes(100, 'map')).toBeGreaterThan(0);
   expect(estimateBytes(200, 'map')).toBeCloseTo(2 * estimateBytes(100, 'map'));
   expect(estimateBytes(100, 'satellite')).toBeGreaterThan(estimateBytes(100, 'map'));
+  expect(estimateBytes(100, 'relief')).toBeGreaterThan(estimateBytes(100, 'map'));
+});
+
+it('estimateBytesForBasemaps sums each basemap at the same tile count', () => {
+  expect(estimateBytesForBasemaps(100, ['map'])).toBe(estimateBytes(100, 'map'));
+  expect(estimateBytesForBasemaps(100, ['map', 'satellite'])).toBe(
+    estimateBytes(100, 'map') + estimateBytes(100, 'satellite'),
+  );
+  expect(estimateBytesForBasemaps(100, [])).toBe(0);
 });

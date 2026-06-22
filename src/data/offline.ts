@@ -1,29 +1,41 @@
+import StaticServer from '@dr.pogodin/react-native-static-server';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { BoundingBox } from '@core/models';
 import { NetworkManager, OfflineManager } from '@maplibre/maplibre-react-native';
 
-// MapLibre's offline `createPack` expects `mapStyle` to be a **style URL** it can
-// fetch — NOT inline style JSON (passing JSON makes the native HTTP layer try to
-// parse the whole string as a URL: "Unable to parse resourceUrl …"). So we
-// serialize the active basemap's style to a small file and hand MapLibre a
-// `file://` URI. The file persists (needed if a paused pack resumes) and is
-// removed when its region is deleted.
+// MapLibre's offline `createPack` expects `mapStyle` to be an **http(s) style URL**
+// it can fetch through its native HTTP source — inline style JSON AND `file://`
+// are both rejected ("Unable to parse resourceUrl …"). So during a download we
+// serialize the active basemap's style to a file and serve it from a transient
+// in-app HTTP server bound to loopback (127.0.0.1), then hand MapLibre that URL.
+// The tiles themselves stream from the real OSM/Esri https endpoints; only the
+// tiny style document needs a local http home. The style file persists (so a
+// completed pack's bookkeeping is stable) and is removed when its region is
+// deleted. Loopback cleartext is allowed via the withLocalhostCleartext plugin.
 const STYLES_DIR = 'offline-styles';
 
-function styleFile(id: string): File {
+function stylesDirectory(): Directory {
   const dir = new Directory(Paths.document, STYLES_DIR);
   if (!dir.exists) dir.create({ intermediates: true });
-  return new File(dir, `${id}.json`);
+  return dir;
 }
 
-/** Write the serialized style to a file and return its `file://` URI. */
-function writeStyleFile(id: string, styleJSON: string): string {
+function styleFile(id: string): File {
+  return new File(stylesDirectory(), `${id}.json`);
+}
+
+/** Write the serialized style to its file (overwriting any previous version). */
+function writeStyleFile(id: string, styleJSON: string): void {
   const f = styleFile(id);
   if (f.exists) f.delete();
   f.create();
   f.write(styleJSON);
-  return f.uri;
+}
+
+// The static server wants a plain filesystem path; expo-file-system gives file:// URIs.
+function fsPath(uri: string): string {
+  return uri.replace(/^file:\/\//, '');
 }
 
 export interface OfflineRegion {
@@ -71,7 +83,7 @@ function regionFromPack(
   };
 }
 
-export function createRegionPack(
+export async function createRegionPack(
   args: {
     id: string;
     label: string;
@@ -83,30 +95,45 @@ export function createRegionPack(
   },
   onProgress: (pct: number, sizeBytes: number) => void,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // OfflinePackCreateOptions has no `name` field — the native layer assigns a UUID.
-    // We embed our app-level id in metadata so we can recover it in listRegionPacks().
-    const meta: PackMeta = { appId: args.id, label: args.label, basemap: args.basemap };
+  // OfflinePackCreateOptions has no `name` field — the native layer assigns a UUID.
+  // We embed our app-level id in metadata so we can recover it in listRegionPacks().
+  const meta: PackMeta = { appId: args.id, label: args.label, basemap: args.basemap };
 
-    // Inline style JSON is rejected by the native offline downloader; write it to
-    // a file and pass the file:// URI instead (see writeStyleFile above).
-    const styleUri = writeStyleFile(args.id, args.styleJSON);
+  writeStyleFile(args.id, args.styleJSON);
 
-    OfflineManager.createPack(
-      {
-        mapStyle: styleUri,
-        bounds: toLngLatBounds(args.bounds),
-        minZoom: args.minZoom,
-        maxZoom: args.maxZoom,
-        metadata: meta as unknown as Record<string, unknown>,
-      },
-      (_pack, status) => {
-        onProgress(status.percentage, status.completedTileSize);
-        if (status.percentage >= 100) resolve();
-      },
-      (_pack, err) => reject(new Error(err.message)),
-    ).catch(reject);
+  // Serve the style file over loopback http so MapLibre's offline downloader can
+  // fetch it (see the module header). Use port 0 (auto-pick a free port) and bind
+  // to 127.0.0.1; start() resolves to the origin only once the server is ACTIVE.
+  const server = new StaticServer({
+    fileDir: fsPath(stylesDirectory().uri),
+    port: 0,
+    hostname: '127.0.0.1',
   });
+  const origin = await server.start();
+  const styleUrl = `${origin}/${args.id}.json`;
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      OfflineManager.createPack(
+        {
+          mapStyle: styleUrl,
+          bounds: toLngLatBounds(args.bounds),
+          minZoom: args.minZoom,
+          maxZoom: args.maxZoom,
+          metadata: meta as unknown as Record<string, unknown>,
+        },
+        (_pack, status) => {
+          onProgress(status.percentage, status.completedTileSize);
+          if (status.percentage >= 100) resolve();
+        },
+        (_pack, err) => reject(new Error(err.message)),
+      ).catch(reject);
+    });
+  } finally {
+    // The style is fetched once at the start of the download; the tiles stream from
+    // their real https endpoints, so it is safe to tear the server down on completion.
+    await server.stop().catch(() => undefined);
+  }
 }
 
 export async function listRegionPacks(): Promise<OfflineRegion[]> {

@@ -10,13 +10,16 @@ import {
   ImageSource,
   Layer,
   Map,
+  type MapRef,
   Marker,
   UserLocation,
 } from '@maplibre/maplibre-react-native';
 import { useLibraryStore } from '@state/libraryStore';
 import { type MapBasemap, useMapStore } from '@state/mapStore';
 import { useRecorderStore } from '@state/recorderStore';
+import { useOfflineStore } from '@state/offlineStore';
 import { useSettingsStore } from '@state/settingsStore';
+import { setOfflineOnly } from '@data/offline';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -39,6 +42,7 @@ import {
   useTheme,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RegionSelectOverlay } from './RegionSelectOverlay';
 import { CompassBadge } from './components/CompassBadge';
 import { ElevationProfile } from '../library/components/ElevationProfile';
 import { RecordControls } from './components/RecordControls';
@@ -74,9 +78,13 @@ export function MapScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const cameraRef = useRef<CameraRef>(null);
+  const mapRef = useRef<MapRef>(null);
+  const [mapSize, setMapSize] = useState({ w: 0, h: 0 });
 
   const tileUrl = useSettingsStore((s) => s.tileUrl);
   const keepAwake = useSettingsStore((s) => s.keepAwakeWhileRecording);
+  const offlineOnly = useSettingsStore((s) => s.offlineOnly);
+  const set = useSettingsStore((s) => s.set);
 
   const { permission, location } = useLocationTracking();
   const heading = useCompass();
@@ -101,6 +109,8 @@ export function MapScreen() {
   const focusBounds = useMapStore((s) => s.focusBounds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const downloadProgress = useOfflineStore((s) => s.progress);
 
   // Consume a one-shot "fit these bounds" request (e.g. "view trail" from the
   // Library) — fly to the trail instead of staying on the user's location.
@@ -213,6 +223,27 @@ export function MapScreen() {
     return undefined;
   }, [status, keepAwake]);
 
+  // Convert a screen point (px) to [lng, lat] using the current map bounds.
+  // getBounds() returns [west, south, east, north]; we interpolate within it.
+  const toGeo = async ({ x, y }: { x: number; y: number }): Promise<[number, number]> => {
+    const b = await mapRef.current?.getBounds();
+    if (!b || mapSize.w === 0 || mapSize.h === 0) return [0, 0];
+    const [w, s, e, n] = b;
+    const fx = Math.max(0, Math.min(1, x / mapSize.w));
+    const fy = Math.max(0, Math.min(1, y / mapSize.h));
+    return [w + fx * (e - w), n - fy * (n - s)]; // north at top; linear approx
+  };
+
+  // Apply persisted offlineOnly flag and hydrate offline tile regions on mount.
+  useEffect(
+    () => {
+      setOfflineOnly(offlineOnly);
+      void useOfflineStore.getState().hydrate();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const trailFeature = useMemo(() => toLineFeature(points), [points]);
 
   // Active saved-trail polylines (lng/lat) to drape on the 3D terrain.
@@ -278,6 +309,7 @@ export function MapScreen() {
         />
       ) : (
         <Map
+          ref={mapRef}
           style={styles.fill}
           mapStyle={style}
           attribution
@@ -287,6 +319,9 @@ export function MapScreen() {
           // peeking out behind our locate button as a stray dark circle.
           compass={false}
           touchPitch
+          onLayout={(e) =>
+            setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
+          }
         >
           <Camera
             ref={cameraRef}
@@ -391,6 +426,27 @@ export function MapScreen() {
         </Map>
       )}
 
+      {/* Region select overlay for offline download */}
+      {selecting && !terrain3d && (
+        <RegionSelectOverlay
+          toGeo={toGeo}
+          basemap={basemap === 'satellite' ? 'satellite' : 'map'}
+          onCancel={() => setSelecting(false)}
+          onConfirm={(bounds, minZoom, maxZoom) => {
+            setSelecting(false);
+            void useOfflineStore.getState().download({
+              id: storage.newId(),
+              label: 'Offline map',
+              basemap,
+              styleJSON: JSON.stringify(buildOsmStyle(tileUrl, false, basemap)),
+              bounds,
+              minZoom,
+              maxZoom,
+            });
+          }}
+        />
+      )}
+
       {/* Top-left compass */}
       <View style={[styles.topLeft, { top: insets.top + 8 }]} pointerEvents="box-none">
         <CompassBadge heading={heading} onPress={resetNorth} />
@@ -422,6 +478,16 @@ export function MapScreen() {
           style={styles.controlFab}
           accessibilityLabel="3D relief"
         />
+        {!terrain3d && (
+          <FAB
+            icon="tray-arrow-down"
+            size="small"
+            variant="surface"
+            onPress={() => setSelecting(true)}
+            style={styles.controlFab}
+            accessibilityLabel="Download offline area"
+          />
+        )}
         <Menu
           visible={overlayMenuOpen}
           onDismiss={() => setOverlayMenuOpen(false)}
@@ -448,6 +514,16 @@ export function MapScreen() {
             onPress={trackOverlays.length > 0 ? toggleTrackOverlays : undefined}
             disabled={trackOverlays.length === 0}
             title={`Trails (${trackOverlays.length})`}
+          />
+          <Divider />
+          <Menu.Item
+            leadingIcon={offlineOnly ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            onPress={() => {
+              const next = !offlineOnly;
+              set('offlineOnly', next);
+              setOfflineOnly(next);
+            }}
+            title="Locally downloaded only"
           />
           <Divider />
           <Menu.Item disabled title="Base map" />
@@ -583,6 +659,11 @@ export function MapScreen() {
       {overlayError && (
         <Snackbar visible onDismiss={() => undefined} duration={4000}>
           {`Map overlay: ${overlayError}`}
+        </Snackbar>
+      )}
+      {downloadProgress !== null && (
+        <Snackbar visible onDismiss={() => undefined} duration={Number.POSITIVE_INFINITY}>
+          {`Downloading map… ${downloadProgress.pct}%`}
         </Snackbar>
       )}
     </View>

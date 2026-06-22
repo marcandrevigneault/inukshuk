@@ -23,7 +23,7 @@ import { setOfflineOnly } from '@data/offline';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import {
   Banner,
   Button,
@@ -235,6 +235,36 @@ export function MapScreen() {
     if (b) boundsRef.current = b as [number, number, number, number];
   }, []);
 
+  // Waypoint tap handling. MapLibre's <Marker onPress> doesn't fire on Android,
+  // so we hit-test the tap against the waypoint pins ourselves: the Map's onPress
+  // gives the tap's pixel point; we project each waypoint to pixels (via the
+  // cached bounds) and open the nearest one within tolerance. The pin is anchored
+  // at its bottom tip, so its badge sits ~BADGE_OFFSET px above the coordinate.
+  const WAYPOINT_BADGE_OFFSET = 45;
+  const WAYPOINT_HIT_PX = 60;
+  const onMapPress = useCallback(
+    (e: { nativeEvent?: { point?: [number, number] } }) => {
+      const point = e.nativeEvent?.point;
+      const b = boundsRef.current;
+      if (!point || !b || mapSize.w === 0 || mapSize.h === 0 || waypoints.length === 0) return;
+      const [px, py] = point;
+      const [w, s, east, n] = b;
+      let best: (typeof waypoints)[number] | null = null;
+      let bestD = WAYPOINT_HIT_PX;
+      for (const wp of waypoints) {
+        const wx = ((wp.longitude - w) / (east - w)) * mapSize.w;
+        const wy = ((n - wp.latitude) / (n - s)) * mapSize.h - WAYPOINT_BADGE_OFFSET;
+        const d = Math.hypot(px - wx, py - wy);
+        if (d < bestD) {
+          bestD = d;
+          best = wp;
+        }
+      }
+      if (best) openWaypoint(best.id, best.note ?? '');
+    },
+    [waypoints, mapSize],
+  );
+
   // Screen point (px) → [lng, lat], synchronously, from the cached bounds.
   const toGeo = useCallback(
     ({ x, y }: { x: number; y: number }): [number, number] | null => {
@@ -333,6 +363,7 @@ export function MapScreen() {
           // peeking out behind our locate button as a stray dark circle.
           compass={false}
           touchPitch
+          onPress={onMapPress}
           onRegionDidChange={() => void refreshBounds()}
           onLayout={(e) =>
             setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
@@ -426,14 +457,10 @@ export function MapScreen() {
 
           {status !== 'idle' &&
             waypoints.map((w) => (
+              // Visual only — tap handling is done at the map level (onMapPress);
+              // MapLibre's <Marker onPress> doesn't fire on Android.
               <Marker key={w.id} id={w.id} lngLat={[w.longitude, w.latitude]} anchor="bottom">
-                <Pressable
-                  onPress={() => openWaypoint(w.id, w.note ?? '')}
-                  hitSlop={10}
-                  accessibilityLabel={`Edit ${w.label}`}
-                >
-                  <WaypointMarkerPin hasPhoto={!!w.photoUri} />
-                </Pressable>
+                <WaypointMarkerPin hasPhoto={!!w.photoUri} />
               </Marker>
             ))}
 
@@ -500,6 +527,9 @@ export function MapScreen() {
           size="small"
           variant={terrain3d ? 'primary' : 'surface'}
           onPress={toggleTerrain3d}
+          // 3D is unstable while recording (it can crash) and is meaningless while
+          // selecting/downloading an offline region — disable it in those states.
+          disabled={status !== 'idle' || selecting || downloadProgress !== null}
           style={styles.controlFab}
           accessibilityLabel="3D relief"
         />
@@ -522,9 +552,9 @@ export function MapScreen() {
               void refreshBounds(); // seed the bounds cache so the estimate is ready
               setSelecting(true);
             }}
-            // Block re-entry while a download is running: a second download would
-            // stop the first's loopback server mid-flight and stall it.
-            disabled={downloadProgress !== null}
+            // Block re-entry while a download is running (a second download would
+            // stop the first's loopback server mid-flight), and while recording.
+            disabled={downloadProgress !== null || status !== 'idle'}
             style={styles.controlFab}
             accessibilityLabel="Download offline area"
           />
@@ -613,7 +643,13 @@ export function MapScreen() {
             <View style={styles.controlsRow} pointerEvents="box-none">
               <RecordControls
                 status={status}
-                onStart={() => start()}
+                // Recording and 3D don't mix (3D can crash mid-record), so drop out
+                // of 3D when a recording starts — the 3D button is already disabled
+                // for the duration.
+                onStart={() => {
+                  if (terrain3d) toggleTerrain3d();
+                  start();
+                }}
                 onPause={pause}
                 onResume={resume}
                 onStop={handleStop}

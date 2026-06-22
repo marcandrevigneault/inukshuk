@@ -14,7 +14,7 @@ interface Props {
  */
 export function WaypointMarkerPin({ hasPhoto }: Props) {
   return (
-    <View style={styles.wrap} pointerEvents="box-none">
+    <View style={styles.wrap} pointerEvents="none">
       <View style={styles.badge}>
         <InukshukIcon size={20} color="#ffffff" />
         {hasPhoto && (

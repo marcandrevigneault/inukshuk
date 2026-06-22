@@ -31,14 +31,11 @@ type Quality = 'standard' | 'high' | 'max';
 
 interface Props {
   /**
-   * Convert a screen point (px, relative to the overlay) to [lng, lat].
-   * Returns `null` when the map bounds/layout aren't ready yet (avoids a
-   * degenerate [0,0] "null island" estimate).
+   * Convert a screen point (px, relative to the overlay) to [lng, lat],
+   * synchronously (from cached map bounds). Returns `null` when the bounds/layout
+   * aren't ready yet (avoids a degenerate [0,0] "null island" estimate).
    */
-  toGeo: (screen: {
-    x: number;
-    y: number;
-  }) => Promise<[number, number] | null> | [number, number] | null;
+  toGeo: (screen: { x: number; y: number }) => [number, number] | null;
   /** The currently-active basemap — pre-checked in the layer picker. */
   activeBasemap: Basemap;
   /** OSM tile URL (from settings) used to build the preview thumbnails. */
@@ -68,7 +65,6 @@ interface Geo {
 const HANDLE_SIZE = 28; // tap target for each corner handle (px)
 const MIN_BOX = 48; // minimum box dimension (px)
 const MAX_TILES = 25_000; // hard cap on total tiles (summed across layers)
-const DEBOUNCE_MS = 120; // delay before recomputing geometry on drag
 const THUMB = 60; // preview thumbnail size (px)
 
 const QUALITY_ZOOM: Record<Quality, number> = { standard: 15, high: 16, max: 17 };
@@ -109,11 +105,6 @@ export function RegionSelectOverlay({
   // Box snapshot at gesture start (written in onGrant, read in onMove).
   const startBox = useRef<Box>({ x: 0, y: 0, w: 0, h: 0 });
 
-  // Debounce timer for geometry recomputation.
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Sequence counter: discard stale async toGeo results (last-write-wins).
-  const seqRef = useRef(0);
-
   // Region geometry (bbox + overview zoom), recomputed from the box.
   const [geo, setGeo] = useState<Geo | null>(null);
 
@@ -141,48 +132,27 @@ export function RegionSelectOverlay({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Geometry recomputation — debounced, last-write-wins for async toGeo. The
-  // quality (max zoom) and selected layers are applied synchronously below, so
-  // changing them never needs another toGeo round-trip.
+  // Geometry recomputation — SYNCHRONOUS (toGeo reads cached map bounds), so the
+  // estimate updates live on every box change, including mid-drag. The quality
+  // (max zoom) and selected layers are applied synchronously below, so changing
+  // them never needs to recompute the geometry.
   // ---------------------------------------------------------------------------
 
   const recomputeGeo = useCallback(
     (b: Box) => {
-      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-
-      debounceRef.current = setTimeout(() => {
-        const seq = ++seqRef.current;
-
-        const run = async () => {
-          const tl = { x: b.x, y: b.y };
-          const br = { x: b.x + b.w, y: b.y + b.h };
-
-          const [tlResult, brResult] = await Promise.all([
-            Promise.resolve(toGeo(tl)),
-            Promise.resolve(toGeo(br)),
-          ]);
-
-          if (seq !== seqRef.current) return; // stale — discard
-          // Bounds/layout not ready — keep the previous geometry.
-          if (tlResult === null || brResult === null) return;
-
-          const [lng0, lat0] = tlResult;
-          const [lng1, lat1] = brResult;
-
-          const bbox: BoundingBox = {
-            minLat: Math.min(lat0, lat1),
-            maxLat: Math.max(lat0, lat1),
-            minLng: Math.min(lng0, lng1),
-            maxLng: Math.max(lng0, lng1),
-          };
-
-          setGeo({ bbox, minZoom: overviewZoomFor(bbox) });
-        };
-
-        run().catch(() => {
-          /* toGeo failure — keep previous geometry */
-        });
-      }, DEBOUNCE_MS);
+      const tl = toGeo({ x: b.x, y: b.y });
+      const br = toGeo({ x: b.x + b.w, y: b.y + b.h });
+      // Bounds/layout not ready — keep the previous geometry.
+      if (tl === null || br === null) return;
+      const [lng0, lat0] = tl;
+      const [lng1, lat1] = br;
+      const bbox: BoundingBox = {
+        minLat: Math.min(lat0, lat1),
+        maxLat: Math.max(lat0, lat1),
+        minLng: Math.min(lng0, lng1),
+        maxLng: Math.max(lng0, lng1),
+      };
+      setGeo({ bbox, minZoom: overviewZoomFor(bbox) });
     },
     [toGeo],
   );
@@ -193,11 +163,19 @@ export function RegionSelectOverlay({
     recomputeCallbackRef.current = recomputeGeo;
   }, [recomputeGeo]);
 
-  // Recompute geometry whenever the box changes (including the initial box). The
-  // debounce coalesces the rapid updates during a drag.
+  // Recompute geometry whenever the box changes (including the initial box) — fires
+  // on every drag move, so the estimate tracks the box live.
   useEffect(() => {
     if (box.w > 0) recomputeCallbackRef.current(box);
   }, [box]);
+
+  // If the bounds cache wasn't ready when the overlay opened, keep retrying until
+  // the first estimate lands (then stop).
+  useEffect(() => {
+    if (geo !== null || box.w === 0) return;
+    const id = setInterval(() => recomputeCallbackRef.current(boxRef.current), 150);
+    return () => clearInterval(id);
+  }, [geo, box.w]);
 
   // ---------------------------------------------------------------------------
   // Derived estimate — geometry × quality × selected layers (all synchronous).

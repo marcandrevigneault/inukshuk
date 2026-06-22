@@ -22,7 +22,7 @@ import { useSettingsStore } from '@state/settingsStore';
 import { setOfflineOnly } from '@data/offline';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import {
   Banner,
@@ -224,15 +224,29 @@ export function MapScreen() {
   }, [status, keepAwake]);
 
   // Convert a screen point (px) to [lng, lat] using the current map bounds.
-  // getBounds() returns [west, south, east, north]; we interpolate within it.
-  const toGeo = async ({ x, y }: { x: number; y: number }): Promise<[number, number] | null> => {
+  // Cache of the map's visible bounds [west, south, east, north]. Kept fresh by
+  // onRegionDidChange and seeded when the download overlay opens, so the
+  // screen→geo conversion below is SYNCHRONOUS — letting the region-select
+  // estimate update live as the box is reshaped (getBounds() is async, which
+  // forced a debounce that only landed the estimate after the drag released).
+  const boundsRef = useRef<[number, number, number, number] | null>(null);
+  const refreshBounds = useCallback(async () => {
     const b = await mapRef.current?.getBounds();
-    if (!b || mapSize.w === 0 || mapSize.h === 0) return null;
-    const [w, s, e, n] = b;
-    const fx = Math.max(0, Math.min(1, x / mapSize.w));
-    const fy = Math.max(0, Math.min(1, y / mapSize.h));
-    return [w + fx * (e - w), n - fy * (n - s)]; // north at top; linear approx
-  };
+    if (b) boundsRef.current = b as [number, number, number, number];
+  }, []);
+
+  // Screen point (px) → [lng, lat], synchronously, from the cached bounds.
+  const toGeo = useCallback(
+    ({ x, y }: { x: number; y: number }): [number, number] | null => {
+      const b = boundsRef.current;
+      if (!b || mapSize.w === 0 || mapSize.h === 0) return null;
+      const [w, s, e, n] = b;
+      const fx = Math.max(0, Math.min(1, x / mapSize.w));
+      const fy = Math.max(0, Math.min(1, y / mapSize.h));
+      return [w + fx * (e - w), n - fy * (n - s)]; // north at top; linear approx
+    },
+    [mapSize],
+  );
 
   // Apply persisted offlineOnly flag and hydrate offline tile regions on mount.
   useEffect(
@@ -319,6 +333,7 @@ export function MapScreen() {
           // peeking out behind our locate button as a stray dark circle.
           compass={false}
           touchPitch
+          onRegionDidChange={() => void refreshBounds()}
           onLayout={(e) =>
             setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
           }
@@ -504,6 +519,7 @@ export function MapScreen() {
               // The region box uses a linear screen→geo projection that is only
               // valid for a north-up, unpitched 2D map, so flatten the camera first.
               cameraRef.current?.setStop({ bearing: 0, pitch: 0, duration: 300 });
+              void refreshBounds(); // seed the bounds cache so the estimate is ready
               setSelecting(true);
             }}
             // Block re-entry while a download is running: a second download would

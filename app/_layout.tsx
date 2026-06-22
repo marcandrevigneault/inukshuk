@@ -1,6 +1,5 @@
 import { PdfRasterizerProvider } from '@features/map/PdfRasterizer';
 import { ImportFeedbackSnackbar } from '@features/share/ImportFeedbackSnackbar';
-import { useIncomingFile } from '@features/share/useIncomingFile';
 import { useLibraryStore } from '@state/libraryStore';
 import { useSettingsStore } from '@state/settingsStore';
 import { darkTheme, lightTheme } from '@ui/theme';
@@ -24,7 +23,8 @@ export default function RootLayout() {
     void hydrateSettings();
   }, [hydrateLibrary, hydrateSettings]);
 
-  useIncomingFile();
+  // Files opened via the OS "Open with" flow are handled in app/+native-intent.tsx
+  // (redirectSystemPath), which intercepts the URI before expo-router routes it.
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

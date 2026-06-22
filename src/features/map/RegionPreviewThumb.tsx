@@ -27,10 +27,7 @@ function previewUri(bbox: BoundingBox, basemap: Basemap, tileUrl: string): strin
   const template = basemapTileUrl(basemap, tileUrl);
   if (!template) return null;
   const { x, y, z } = centerTileForRegion(bbox);
-  return template
-    .replace('{z}', String(z))
-    .replace('{x}', String(x))
-    .replace('{y}', String(y));
+  return template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 }
 
 export function RegionPreviewThumb({ bbox, basemap, tileUrl, size }: Props): ReactElement {

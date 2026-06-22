@@ -1,8 +1,10 @@
+import type { Basemap } from '@core/geo/tiles';
 import type { BoundingBox } from '@core/models';
 import { create } from 'zustand';
 
-/** Base layer drawn under the overlays on the main map. */
-export type MapBasemap = 'map' | 'satellite' | 'relief';
+/** Base layer drawn under the overlays on the main map (same set as the
+ * downloadable {@link Basemap}s — kept as one type so they can't diverge). */
+export type MapBasemap = Basemap;
 
 /**
  * Transient map view state that isn't persisted: which saved trails are shown as

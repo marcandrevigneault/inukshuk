@@ -58,3 +58,9 @@ export function formatTimestamp(epochMs: number): string {
     minute: '2-digit',
   });
 }
+
+/** Bytes -> human-readable size, e.g. "840 KB" or "12 MB". */
+export function formatBytes(n: number): string {
+  if (n < 1e6) return `${(n / 1e3).toFixed(0)} KB`;
+  return `${(n / 1e6).toFixed(0)} MB`;
+}

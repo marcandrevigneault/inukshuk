@@ -30,6 +30,8 @@ export interface Settings {
   elevationProfileStyle: ElevationProfileStyle;
   /** Trail detail view: real 3D terrain or a flat 2D map. */
   trailViewMode: '2d' | '3d';
+  /** Use only offline maps; don't fetch from OSM. */
+  offlineOnly: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -39,6 +41,7 @@ const DEFAULTS: Settings = {
   minDisplacementM: 5,
   elevationProfileStyle: 'gradient',
   trailViewMode: '3d',
+  offlineOnly: false,
 };
 
 interface SettingsState extends Settings {
@@ -70,6 +73,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       minDisplacementM,
       elevationProfileStyle,
       trailViewMode,
+      offlineOnly,
     } = get();
     persist({
       tileUrl,
@@ -78,6 +82,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       minDisplacementM,
       elevationProfileStyle,
       trailViewMode,
+      offlineOnly,
     });
   },
 

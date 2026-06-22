@@ -26,6 +26,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // v1 records in the foreground only (screen kept awake), so no background
       // location mode is declared — keeps store review simple.
       ITSAppUsesNonExemptEncryption: false,
+      // Allow cleartext to loopback only, for the in-app HTTP server that serves the
+      // MapLibre style during an offline-region download (see src/data/offline.ts).
+      NSAppTransportSecurity: {
+        NSAllowsLocalNetworking: true,
+      },
       // Let Inukshuk appear in iOS "Open in…" for .gpx files (declared now so iOS
       // is ready; iOS isn't being built yet).
       CFBundleDocumentTypes: [
@@ -121,6 +126,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Raise Gradle heap/metaspace so :expo-updates:kspReleaseKotlin doesn't OOM
     // on production builds (the SDK template's 512m metaspace is too small).
     './plugins/withGradleMemory',
+    // Allow cleartext to loopback only, for the in-app HTTP server that serves the
+    // MapLibre style during an offline-region download (see src/data/offline.ts).
+    './plugins/withLocalhostCleartext',
   ],
   experiments: {
     typedRoutes: true,

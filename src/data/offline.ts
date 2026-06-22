@@ -38,6 +38,32 @@ function fsPath(uri: string): string {
   return uri.replace(/^file:\/\//, '');
 }
 
+// The static-server lib permits only ONE active server instance per app. If a
+// previous download leaked its server (e.g. an interrupted run), a fresh start()
+// throws "another server instance is active". Track the live server here and stop
+// any prior one before starting a new one, so downloads never block each other.
+let activeStyleServer: StaticServer | null = null;
+
+async function startStyleServer(): Promise<{ server: StaticServer; origin: string }> {
+  if (activeStyleServer) {
+    await activeStyleServer.stop().catch(() => undefined);
+    activeStyleServer = null;
+  }
+  const server = new StaticServer({
+    fileDir: fsPath(stylesDirectory().uri),
+    port: 0,
+    hostname: '127.0.0.1',
+  });
+  const origin = await server.start();
+  activeStyleServer = server;
+  return { server, origin };
+}
+
+async function stopStyleServer(server: StaticServer): Promise<void> {
+  await server.stop().catch(() => undefined);
+  if (activeStyleServer === server) activeStyleServer = null;
+}
+
 export interface OfflineRegion {
   id: string;
   label: string;
@@ -99,26 +125,21 @@ export async function createRegionPack(
   // We embed our app-level id in metadata so we can recover it in listRegionPacks().
   const meta: PackMeta = { appId: args.id, label: args.label, basemap: args.basemap };
 
-  // The transient loopback server is created up-front but only started inside the
-  // try, so that ANY failure (including start() throwing) hits the finally cleanup.
-  const server = new StaticServer({
-    fileDir: fsPath(stylesDirectory().uri),
-    port: 0,
-    hostname: '127.0.0.1',
-  });
-
   // Native pack id, captured from the progress/error listener's pack arg so we can
   // delete a partially-created pack if the download errors out.
   let nativePackId: string | undefined;
+  // The loopback server, assigned once started so the finally can always stop it.
+  let server: StaticServer | undefined;
 
   try {
     writeStyleFile(args.id, args.styleJSON);
 
     // Serve the style file over loopback http so MapLibre's offline downloader can
-    // fetch it (see the module header). Use port 0 (auto-pick a free port) and bind
-    // to 127.0.0.1; start() resolves to the origin only once the server is ACTIVE.
-    const origin = await server.start();
-    const styleUrl = `${origin}/${args.id}.json`;
+    // fetch it (see the module header). Port 0 auto-picks a free port; start()
+    // resolves to the origin only once ACTIVE, and stops any leaked prior server.
+    const started = await startStyleServer();
+    server = started.server;
+    const styleUrl = `${started.origin}/${args.id}.json`;
 
     await new Promise<void>((resolve, reject) => {
       OfflineManager.createPack(
@@ -156,7 +177,8 @@ export async function createRegionPack(
   } finally {
     // The style is fetched once at the start of the download; the tiles stream from
     // their real https endpoints, so it is safe to tear the server down on completion.
-    await server.stop().catch(() => undefined);
+    // `server` is undefined if start() itself failed (nothing to stop in that case).
+    if (server) await stopStyleServer(server);
   }
 }
 

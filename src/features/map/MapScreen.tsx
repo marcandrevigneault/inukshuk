@@ -434,13 +434,7 @@ export function MapScreen() {
           onCancel={() => setSelecting(false)}
           onConfirm={(bounds, minZoom, maxZoom) => {
             setSelecting(false);
-            // "Locally downloaded only" calls NetworkManager.setConnected(false)
-            // process-wide, which would deadlock the download (it can't fetch
-            // tiles). Temporarily restore network for the duration of the download,
-            // then re-apply the runtime flag — without touching the persisted setting.
-            const wasOfflineOnly = offlineOnly;
             void (async () => {
-              if (wasOfflineOnly) setOfflineOnly(false);
               try {
                 await useOfflineStore.getState().download({
                   id: storage.newId(),
@@ -454,8 +448,6 @@ export function MapScreen() {
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 showSnack('Download failed: ' + message);
-              } finally {
-                if (wasOfflineOnly) setOfflineOnly(true);
               }
             })();
           }}
@@ -499,6 +491,13 @@ export function MapScreen() {
             size="small"
             variant="surface"
             onPress={() => {
+              // "Locally downloaded only" cuts MapLibre's network process-wide, which
+              // would stall a download (it can't fetch tiles). Rather than fight that
+              // at runtime, require the user to turn it off first.
+              if (offlineOnly) {
+                showSnack("Turn off 'Locally downloaded only' to download a new area");
+                return;
+              }
               // The region box uses a linear screen→geo projection that is only
               // valid for a north-up, unpitched 2D map, so flatten the camera first.
               cameraRef.current?.setStop({ bearing: 0, pitch: 0, duration: 300 });

@@ -58,6 +58,9 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
 
   downloadMany: async (args) => {
     const total = args.layers.length;
+    // Each layer is independent: one failing must not abort the others. Collect
+    // the failures and report them together once every layer has been attempted.
+    const failed: string[] = [];
     try {
       for (let i = 0; i < args.layers.length; i++) {
         const layer = args.layers[i];
@@ -65,21 +68,28 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         const tag = total > 1 ? ` (${i + 1}/${total})` : '';
         const label = `${LAYER_LABEL[layer.basemap]}${tag}`;
         set({ progress: { pct: 0, sizeBytes: 0, label } });
-        await createRegionPack(
-          {
-            id: `${args.baseId}-${layer.basemap}`,
-            label: args.label,
-            basemap: layer.basemap,
-            styleJSON: layer.styleJSON,
-            bounds: args.bounds,
-            minZoom: args.minZoom,
-            maxZoom: args.maxZoom,
-          },
-          (pct, sizeBytes) => set({ progress: { pct, sizeBytes, label } }),
-        );
+        try {
+          await createRegionPack(
+            {
+              id: `${args.baseId}-${layer.basemap}`,
+              label: args.label,
+              basemap: layer.basemap,
+              styleJSON: layer.styleJSON,
+              bounds: args.bounds,
+              minZoom: args.minZoom,
+              maxZoom: args.maxZoom,
+            },
+            (pct, sizeBytes) => set({ progress: { pct, sizeBytes, label } }),
+          );
+        } catch {
+          failed.push(LAYER_LABEL[layer.basemap]);
+        }
       }
     } finally {
       set({ progress: null, regions: await listRegionPacks() });
+    }
+    if (failed.length > 0) {
+      throw new Error(`${failed.join(', ')} failed to download`);
     }
   },
 

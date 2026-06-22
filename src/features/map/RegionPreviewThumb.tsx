@@ -12,7 +12,7 @@ import { centerTileForRegion } from '@core/geo/tiles';
 import type { Basemap } from '@core/geo/tiles';
 import type { BoundingBox } from '@core/models';
 import type { ReactElement } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { Icon, useTheme } from 'react-native-paper';
 
@@ -37,11 +37,22 @@ export function RegionPreviewThumb({ bbox, basemap, tileUrl, size }: Props): Rea
     [bbox, basemap, tileUrl],
   );
 
+  // Fall back to the placeholder if the tile can't be fetched (e.g. OSM 403s a
+  // bare RN Image request). Tracking the *failed uri* (not a bool) auto-resets
+  // when the target tile changes, without a setState-in-effect.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const showImage = uri !== null && uri !== failedUri;
+
   const box = { width: size, height: size, borderRadius: 8 };
   return (
     <View style={[styles.frame, box, { borderColor: theme.colors.outlineVariant }]}>
-      {uri ? (
-        <Image source={{ uri }} style={[box, styles.image]} resizeMode="cover" />
+      {showImage ? (
+        <Image
+          source={{ uri }}
+          style={[box, styles.image]}
+          resizeMode="cover"
+          onError={() => setFailedUri(uri)}
+        />
       ) : (
         <View style={[box, styles.placeholder, { backgroundColor: theme.colors.surfaceVariant }]}>
           <Icon source="map-outline" size={size * 0.4} color={theme.colors.onSurfaceVariant} />

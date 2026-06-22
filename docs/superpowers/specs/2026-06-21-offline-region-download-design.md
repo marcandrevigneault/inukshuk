@@ -22,7 +22,7 @@ installed `@maplibre/maplibre-react-native` v11:
 
 - `OfflineManager.createPack(options, onProgress, onError) => Promise<OfflinePack>`
   where `options: { mapStyle: string; bounds: LngLatBounds; minZoom?: number;
-  maxZoom?: number; metadata?: ... }`. `mapStyle` is a **string** — we pass
+maxZoom?: number; metadata?: ... }`. `mapStyle` is a **string** — we pass
   `JSON.stringify(buildOsmStyle(tileUrl, false, basemap))` (our inline raster
   style serialized), so packs work with our key-free raster basemaps.
 - `OfflineManager.getPacks() => OfflinePack[]`, `deletePack(name)`,
@@ -43,7 +43,7 @@ installed `@maplibre/maplibre-react-native` v11:
   **hard cap** (default ~25 000 tiles ≈ ~400–600 MB) that blocks oversized
   downloads with a "shrink the box" message.
 - **"Locally downloaded only"** (layer menu): ON → `NetworkManager.setConnected(
-  false)`, map shows only downloaded tiles, un-downloaded areas render blank, zero
+false)`, map shows only downloaded tiles, un-downloaded areas render blank, zero
   data used. OFF → normal (live fetch; cached tiles still serve instantly).
 - **Download button:** on the map screen (right-side control stack).
 - **Manage:** an **"Offline maps"** section in Settings — each region's label,
@@ -63,9 +63,9 @@ Designed as small, independently-testable units.
 
 2. **`src/data/offline.ts`** — thin wrapper over MapLibre:
    - `createRegionPack(args: { id; label; basemap; styleJSON; bounds; minZoom;
-     maxZoom }, onProgress): Promise<void>` → `OfflineManager.createPack({
-     mapStyle: styleJSON, bounds, minZoom, maxZoom, metadata: JSON.stringify({
-     label, basemap }) }, …)`.
+maxZoom }, onProgress): Promise<void>` → `OfflineManager.createPack({
+mapStyle: styleJSON, bounds, minZoom, maxZoom, metadata: JSON.stringify({
+label, basemap }) }, …)`.
    - `listRegionPacks(): Promise<OfflineRegion[]>` → maps `getPacks()` to a plain
      `OfflineRegion` ({ id, label, basemap, bounds, sizeBytes, complete }).
    - `deleteRegionPack(id)`, `setOfflineOnly(on: boolean)` (via NetworkManager).
@@ -109,7 +109,7 @@ cached/pack tiles.
 
 - **Per-basemap packs.** A pack embeds the basemap's style, so a region is tied to
   the basemap it was downloaded with; Settings shows which. Downloading the same
-  area for satellite *and* street = two packs.
+  area for satellite _and_ street = two packs.
 - **Pack identity.** MapLibre keys packs by `name`; use a generated id as `name`
   and store `{ label, basemap }` in `metadata` (a JSON string).
 - **minZoom** = `overviewZoomFor(bounds)`, **maxZoom** = 17.

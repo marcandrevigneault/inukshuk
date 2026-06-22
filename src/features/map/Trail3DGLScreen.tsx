@@ -1,5 +1,10 @@
 import { parseGpx } from '@core/geo/gpx';
-import { interpolateTrackAtDistance, type TrackPointAt } from '@core/geo/track';
+import {
+  computeTrackStats,
+  interpolateTrackAtDistance,
+  withDemElevations,
+  type TrackPointAt,
+} from '@core/geo/track';
 import { orderNotes } from '@core/library/notes';
 import { padBbox } from '@core/geo/terrain';
 import type { TrackPoint } from '@core/models';
@@ -99,6 +104,9 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const setSetting = useSettingsStore((s) => s.set);
 
   const [points, setPoints] = useState<TrackPoint[] | null>(null);
+  // Same points but with each altitude replaced by the terrain (DEM) height the
+  // 3D view drapes the trail on, so the elevation profile always matches the 3D.
+  const [demPoints, setDemPoints] = useState<TrackPoint[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errMsg, setErrMsg] = useState('');
   const [basemap, setBasemap] = useState<'map' | 'satellite' | 'relief'>('map');
@@ -208,6 +216,34 @@ export function Trail3DGLScreen({ trackId }: Props) {
       cancelled = true;
     };
   }, [fileUri]);
+
+  // Sample the terrain (DEM) under each point so the profile reads the same
+  // surface the 3D view drapes the trail on. Reuses the heightmap the GL context
+  // loads when available; in 2D mode it fetches it here.
+  useEffect(() => {
+    if (!points || points.length === 0 || !bbox) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const hm = hmRef.current ?? (await fetchHeightmap(padBbox(bbox)));
+        hmRef.current = hm;
+        if (!cancelled) setDemPoints(withDemElevations(points, hm));
+      } catch {
+        /* keep the recorded <ele> if the DEM can't be loaded */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [points, bbox]);
+
+  // Drive the profile + summary from the DEM-sampled points when available, so
+  // the elevation chart and ↑/↓ totals match the 3D drape and the displayed view.
+  const profilePoints = demPoints ?? points ?? [];
+  const profileStats = useMemo(
+    () => (demPoints ? computeTrackStats(demPoints) : null),
+    [demPoints],
+  );
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
     try {
@@ -398,7 +434,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
     );
   }
 
-  const s = track.stats;
+  const s = profileStats ?? track.stats;
 
   return (
     <View style={styles.fill}>
@@ -497,7 +533,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
               )}
             </View>
             <ElevationProfile
-              points={points}
+              points={profilePoints}
               ascentM={s.ascentM}
               descentM={s.descentM}
               markers={markers}
@@ -535,7 +571,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
                   </View>
                   <Pressable
                     style={styles.noteBody}
-                    onPress={() => onScrub(interpolateTrackAtDistance(points, n.distanceM))}
+                    onPress={() => onScrub(interpolateTrackAtDistance(profilePoints, n.distanceM))}
                   >
                     <Text variant="bodyMedium">{n.text}</Text>
                     <Text variant="bodySmall" style={hintColor}>

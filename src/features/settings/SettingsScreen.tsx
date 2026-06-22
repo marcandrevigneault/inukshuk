@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { Appbar, Button, Divider, List, SegmentedButtons, Switch, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OfflineMapsSection } from './OfflineMapsSection';
 
 const DISPLACEMENT_OPTIONS = [
   { value: '2', label: '2 m' },
@@ -70,6 +71,10 @@ export function SettingsScreen() {
             </Text>
           </View>
         </List.Section>
+
+        <Divider />
+
+        <OfflineMapsSection />
 
         <Divider />
 

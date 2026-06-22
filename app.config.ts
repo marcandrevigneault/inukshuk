@@ -11,7 +11,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'Inukshuk',
   slug: 'inukshuk',
   owner: 'pythagorasv02',
-  version: '1.0.0',
+  // Bumped to 1.0.1 for the offline-maps release: it adds a native module, and
+  // runtimeVersion follows appVersion — a new version name gives this build its
+  // own OTA runtime, so it never pulls the older 1.0.0 runtime's JS (which lacks
+  // the native module). Existing 1.0.0 installs keep their own OTA lineage.
+  version: '1.0.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'inukshuk',
@@ -52,9 +56,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'com.inukshuk.app',
-    // Display version stays 1.0.0 (alpha), but versionCode must keep monotonically
-    // increasing on Play (it can't reset) — bump this each store build.
-    versionCode: 42,
+    // versionCode must keep monotonically increasing on Play (it can't reset) —
+    // bump this each store build. (vc42 was 1.0.0; vc43 is 1.0.1, see version above.)
+    versionCode: 43,
     adaptiveIcon: {
       foregroundImage: './assets/android-icon-foreground.png',
       // Cream paper from the logo; the full-bleed foreground covers it, this only

@@ -39,7 +39,10 @@ module.exports = function withLocalhostCleartext(config) {
         'xml',
       );
       fs.mkdirSync(resXmlDir, { recursive: true });
-      fs.writeFileSync(path.join(resXmlDir, 'network_security_config.xml'), NETWORK_SECURITY_CONFIG);
+      fs.writeFileSync(
+        path.join(resXmlDir, 'network_security_config.xml'),
+        NETWORK_SECURITY_CONFIG,
+      );
       return cfg;
     },
   ]);

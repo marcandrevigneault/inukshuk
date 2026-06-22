@@ -34,7 +34,7 @@ export function tileCountForRegion(b: BoundingBox, minZoom: number, maxZoom: num
   return total;
 }
 
-/** Lowest zoom whose tile span fits the region within `maxTilesPerSide` per axis. */
+/** Highest zoom whose tile span fits the region within `maxTilesPerSide` per axis. */
 export function overviewZoomFor(b: BoundingBox, maxTilesPerSide = 2): number {
   for (let z = 0; z <= 17; z++) {
     const [xSpan, ySpan] = tileSpanAtZoom(b, z);

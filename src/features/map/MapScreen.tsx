@@ -503,6 +503,9 @@ export function MapScreen() {
               cameraRef.current?.setStop({ bearing: 0, pitch: 0, duration: 300 });
               setSelecting(true);
             }}
+            // Block re-entry while a download is running: a second download would
+            // stop the first's loopback server mid-flight and stall it.
+            disabled={downloadProgress !== null}
             style={styles.controlFab}
             accessibilityLabel="Download offline area"
           />

@@ -25,9 +25,10 @@ interface Props {
    * Returns `null` when the map bounds/layout aren't ready yet (avoids a
    * degenerate [0,0] "null island" estimate).
    */
-  toGeo: (
-    screen: { x: number; y: number },
-  ) => Promise<[number, number] | null> | [number, number] | null;
+  toGeo: (screen: {
+    x: number;
+    y: number;
+  }) => Promise<[number, number] | null> | [number, number] | null;
   basemap: 'map' | 'satellite';
   onConfirm: (bounds: BoundingBox, minZoom: number, maxZoom: number) => void;
   onCancel: () => void;

@@ -156,10 +156,14 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
     recomputeCallbackRef.current = recomputeEstimate;
   }, [recomputeEstimate]);
 
-  // Re-run estimate when toGeo or basemap changes while the overlay is visible.
+  // Recompute the estimate whenever the box changes — including the initial box
+  // set by `initBox` once the overlay's onLayout reports its size (the previous
+  // version keyed on `recomputeEstimate` and read `boxRef.current.w`, which was
+  // still 0 on mount, so the first estimate never fired and it stuck on
+  // "Calculating…"). The debounce coalesces the rapid box updates during a drag.
   useEffect(() => {
-    if (boxRef.current.w > 0) recomputeEstimate(boxRef.current);
-  }, [recomputeEstimate]);
+    if (box.w > 0) recomputeCallbackRef.current(box);
+  }, [box]);
 
   // ---------------------------------------------------------------------------
   // PanResponder — top-left corner.

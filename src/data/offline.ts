@@ -1,5 +1,30 @@
+import { Directory, File, Paths } from 'expo-file-system';
+
 import type { BoundingBox } from '@core/models';
 import { NetworkManager, OfflineManager } from '@maplibre/maplibre-react-native';
+
+// MapLibre's offline `createPack` expects `mapStyle` to be a **style URL** it can
+// fetch — NOT inline style JSON (passing JSON makes the native HTTP layer try to
+// parse the whole string as a URL: "Unable to parse resourceUrl …"). So we
+// serialize the active basemap's style to a small file and hand MapLibre a
+// `file://` URI. The file persists (needed if a paused pack resumes) and is
+// removed when its region is deleted.
+const STYLES_DIR = 'offline-styles';
+
+function styleFile(id: string): File {
+  const dir = new Directory(Paths.document, STYLES_DIR);
+  if (!dir.exists) dir.create({ intermediates: true });
+  return new File(dir, `${id}.json`);
+}
+
+/** Write the serialized style to a file and return its `file://` URI. */
+function writeStyleFile(id: string, styleJSON: string): string {
+  const f = styleFile(id);
+  if (f.exists) f.delete();
+  f.create();
+  f.write(styleJSON);
+  return f.uri;
+}
 
 export interface OfflineRegion {
   id: string;
@@ -63,9 +88,13 @@ export function createRegionPack(
     // We embed our app-level id in metadata so we can recover it in listRegionPacks().
     const meta: PackMeta = { appId: args.id, label: args.label, basemap: args.basemap };
 
+    // Inline style JSON is rejected by the native offline downloader; write it to
+    // a file and pass the file:// URI instead (see writeStyleFile above).
+    const styleUri = writeStyleFile(args.id, args.styleJSON);
+
     OfflineManager.createPack(
       {
-        mapStyle: args.styleJSON,
+        mapStyle: styleUri,
         bounds: toLngLatBounds(args.bounds),
         minZoom: args.minZoom,
         maxZoom: args.maxZoom,
@@ -107,6 +136,9 @@ export async function deleteRegionPack(id: string): Promise<void> {
   if (target) {
     await OfflineManager.deletePack(target.id);
   }
+  // Remove the serialized style file we wrote for this region (best-effort).
+  const f = styleFile(id);
+  if (f.exists) f.delete();
 }
 
 /** Force MapLibre to serve only cached/pack tiles (true) or fetch normally (false). */

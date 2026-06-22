@@ -579,23 +579,34 @@ export function MapScreen() {
 
       {/* Bottom HUD + controls */}
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 16 }]} pointerEvents="box-none">
-        {status !== 'idle' && (
-          <StatsHud name={name} stats={stats} elapsedS={elapsedS} paused={status === 'paused'} />
+        {/* Hide the recording UI while the region-select overlay is open so the
+            Record button doesn't sit on top of the overlay's Confirm/Cancel bar. */}
+        {!selecting && (
+          <>
+            {status !== 'idle' && (
+              <StatsHud
+                name={name}
+                stats={stats}
+                elapsedS={elapsedS}
+                paused={status === 'paused'}
+              />
+            )}
+            <View style={styles.controlsRow} pointerEvents="box-none">
+              <RecordControls
+                status={status}
+                onStart={() => start()}
+                onPause={pause}
+                onResume={resume}
+                onStop={handleStop}
+                onWaypoint={() => {
+                  const n = addWaypoint();
+                  if (n > 0) showSnack(`Waypoint ${n} dropped — tap it to add a note or photo`);
+                  else showSnack('Waiting for a GPS fix before dropping a waypoint');
+                }}
+              />
+            </View>
+          </>
         )}
-        <View style={styles.controlsRow} pointerEvents="box-none">
-          <RecordControls
-            status={status}
-            onStart={() => start()}
-            onPause={pause}
-            onResume={resume}
-            onStop={handleStop}
-            onWaypoint={() => {
-              const n = addWaypoint();
-              if (n > 0) showSnack(`Waypoint ${n} dropped — tap it to add a note or photo`);
-              else showSnack('Waiting for a GPS fix before dropping a waypoint');
-            }}
-          />
-        </View>
       </View>
 
       {inspectId && inspectPoints && inspectTrack && (

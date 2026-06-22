@@ -99,20 +99,27 @@ export async function createRegionPack(
   // We embed our app-level id in metadata so we can recover it in listRegionPacks().
   const meta: PackMeta = { appId: args.id, label: args.label, basemap: args.basemap };
 
-  writeStyleFile(args.id, args.styleJSON);
-
-  // Serve the style file over loopback http so MapLibre's offline downloader can
-  // fetch it (see the module header). Use port 0 (auto-pick a free port) and bind
-  // to 127.0.0.1; start() resolves to the origin only once the server is ACTIVE.
+  // The transient loopback server is created up-front but only started inside the
+  // try, so that ANY failure (including start() throwing) hits the finally cleanup.
   const server = new StaticServer({
     fileDir: fsPath(stylesDirectory().uri),
     port: 0,
     hostname: '127.0.0.1',
   });
-  const origin = await server.start();
-  const styleUrl = `${origin}/${args.id}.json`;
+
+  // Native pack id, captured from the progress/error listener's pack arg so we can
+  // delete a partially-created pack if the download errors out.
+  let nativePackId: string | undefined;
 
   try {
+    writeStyleFile(args.id, args.styleJSON);
+
+    // Serve the style file over loopback http so MapLibre's offline downloader can
+    // fetch it (see the module header). Use port 0 (auto-pick a free port) and bind
+    // to 127.0.0.1; start() resolves to the origin only once the server is ACTIVE.
+    const origin = await server.start();
+    const styleUrl = `${origin}/${args.id}.json`;
+
     await new Promise<void>((resolve, reject) => {
       OfflineManager.createPack(
         {
@@ -122,13 +129,30 @@ export async function createRegionPack(
           maxZoom: args.maxZoom,
           metadata: meta as unknown as Record<string, unknown>,
         },
-        (_pack, status) => {
+        (pack, status) => {
+          nativePackId = pack.id;
           onProgress(status.percentage, status.completedTileSize);
           if (status.percentage >= 100) resolve();
         },
-        (_pack, err) => reject(new Error(err.message)),
-      ).catch(reject);
+        (pack, err) => {
+          nativePackId = pack.id;
+          reject(new Error(err.message));
+        },
+      )
+        .then((pack) => {
+          nativePackId = pack.id;
+        })
+        .catch(reject);
     });
+  } catch (err) {
+    // Best-effort: delete the partially-created native pack (so it doesn't show up
+    // in Settings as a real region) and its orphaned style file. Don't mask `err`.
+    if (nativePackId !== undefined) {
+      await OfflineManager.deletePack(nativePackId).catch(() => undefined);
+    }
+    const f = styleFile(args.id);
+    if (f.exists) f.delete();
+    throw err;
   } finally {
     // The style is fetched once at the start of the download; the tiles stream from
     // their real https endpoints, so it is safe to tear the server down on completion.

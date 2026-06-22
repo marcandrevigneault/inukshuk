@@ -1,4 +1,4 @@
-import { tileCountForRegion, overviewZoomFor, estimateBytes } from './tiles';
+import { tileCountForRegion, overviewZoomFor, estimateBytes, tileSpanAtZoom } from './tiles';
 import type { BoundingBox } from '@core/models';
 
 const world: BoundingBox = { minLat: -85, minLng: -180, maxLat: 85, maxLng: 180 };
@@ -15,10 +15,23 @@ it('counts the covering tiles across a zoom range (monotonic, > the single top)'
   expect(tileCountForRegion(small, 10, 10)).toBeGreaterThanOrEqual(1);
 });
 
-it('overviewZoomFor returns a low zoom whose span fits in <= maxTilesPerSide', () => {
-  const z = overviewZoomFor(small, 2);
+it('overviewZoomFor returns the highest zoom whose per-axis span still fits maxTilesPerSide', () => {
+  const maxPerSide = 2;
+  const z = overviewZoomFor(small, maxPerSide);
   expect(z).toBeGreaterThanOrEqual(0);
   expect(z).toBeLessThanOrEqual(17);
+
+  // The returned zoom's span actually fits within the budget on both axes.
+  const [xSpan, ySpan] = tileSpanAtZoom(small, z);
+  expect(xSpan).toBeLessThanOrEqual(maxPerSide);
+  expect(ySpan).toBeLessThanOrEqual(maxPerSide);
+
+  // And it is the *highest* such zoom: one step deeper must exceed the budget
+  // (unless we're already clamped at the max zoom of 17).
+  if (z < 17) {
+    const [xNext, yNext] = tileSpanAtZoom(small, z + 1);
+    expect(Math.max(xNext, yNext)).toBeGreaterThan(maxPerSide);
+  }
 });
 
 it('estimateBytes scales with tile count and basemap', () => {

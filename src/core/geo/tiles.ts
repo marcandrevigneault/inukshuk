@@ -11,16 +11,20 @@ const latToY = (lat: number, z: number): number => {
   return Math.max(0, Math.min(2 ** z - 1, y));
 };
 
-/** Tiles a bbox spans at a single zoom: (xCount) * (yCount). */
-function tilesAtZoom(b: BoundingBox, z: number): number {
-  let x0 = lngToX(b.minLng, z);
-  let x1 = lngToX(b.maxLng, z);
+/** Tile span of a bbox per axis at a single zoom: [xCount, yCount]. */
+export function tileSpanAtZoom(b: BoundingBox, z: number): [number, number] {
   const maxTile = 2 ** z - 1;
-  x0 = Math.max(0, Math.min(maxTile, x0));
-  x1 = Math.max(0, Math.min(maxTile, x1));
+  const x0 = Math.max(0, Math.min(maxTile, lngToX(b.minLng, z)));
+  const x1 = Math.max(0, Math.min(maxTile, lngToX(b.maxLng, z)));
   const y0 = latToY(b.maxLat, z); // north = smaller y
   const y1 = latToY(b.minLat, z);
-  return (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1);
+  return [Math.abs(x1 - x0) + 1, Math.abs(y1 - y0) + 1];
+}
+
+/** Tiles a bbox spans at a single zoom: (xCount) * (yCount). */
+function tilesAtZoom(b: BoundingBox, z: number): number {
+  const [xSpan, ySpan] = tileSpanAtZoom(b, z);
+  return xSpan * ySpan;
 }
 
 /** Total tiles a region covers across an inclusive zoom range. */
@@ -33,8 +37,7 @@ export function tileCountForRegion(b: BoundingBox, minZoom: number, maxZoom: num
 /** Lowest zoom whose tile span fits the region within `maxTilesPerSide` per axis. */
 export function overviewZoomFor(b: BoundingBox, maxTilesPerSide = 2): number {
   for (let z = 0; z <= 17; z++) {
-    const xSpan = Math.abs(lngToX(b.maxLng, z) - lngToX(b.minLng, z)) + 1;
-    const ySpan = Math.abs(latToY(b.minLat, z) - latToY(b.maxLat, z)) + 1;
+    const [xSpan, ySpan] = tileSpanAtZoom(b, z);
     if (xSpan > maxTilesPerSide || ySpan > maxTilesPerSide) return Math.max(0, z - 1);
   }
   return 17;

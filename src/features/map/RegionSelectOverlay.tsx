@@ -20,8 +20,14 @@ import { Button, Surface, Text, useTheme } from 'react-native-paper';
 // ---------------------------------------------------------------------------
 
 interface Props {
-  /** Convert a screen point (px, relative to the overlay) to [lng, lat]. */
-  toGeo: (screen: { x: number; y: number }) => Promise<[number, number]> | [number, number];
+  /**
+   * Convert a screen point (px, relative to the overlay) to [lng, lat].
+   * Returns `null` when the map bounds/layout aren't ready yet (avoids a
+   * degenerate [0,0] "null island" estimate).
+   */
+  toGeo: (
+    screen: { x: number; y: number },
+  ) => Promise<[number, number] | null> | [number, number] | null;
   basemap: 'map' | 'satellite';
   onConfirm: (bounds: BoundingBox, minZoom: number, maxZoom: number) => void;
   onCancel: () => void;
@@ -122,6 +128,10 @@ export function RegionSelectOverlay({ toGeo, basemap, onConfirm, onCancel }: Pro
           ]);
 
           if (seq !== seqRef.current) return; // stale — discard
+
+          // Bounds/layout not ready — keep the previous estimate rather than
+          // computing a degenerate bbox from a [0,0] sentinel.
+          if (tlResult === null || brResult === null) return;
 
           const [lng0, lat0] = tlResult;
           const [lng1, lat1] = brResult;

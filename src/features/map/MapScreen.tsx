@@ -225,9 +225,9 @@ export function MapScreen() {
 
   // Convert a screen point (px) to [lng, lat] using the current map bounds.
   // getBounds() returns [west, south, east, north]; we interpolate within it.
-  const toGeo = async ({ x, y }: { x: number; y: number }): Promise<[number, number]> => {
+  const toGeo = async ({ x, y }: { x: number; y: number }): Promise<[number, number] | null> => {
     const b = await mapRef.current?.getBounds();
-    if (!b || mapSize.w === 0 || mapSize.h === 0) return [0, 0];
+    if (!b || mapSize.w === 0 || mapSize.h === 0) return null;
     const [w, s, e, n] = b;
     const fx = Math.max(0, Math.min(1, x / mapSize.w));
     const fy = Math.max(0, Math.min(1, y / mapSize.h));
@@ -434,15 +434,30 @@ export function MapScreen() {
           onCancel={() => setSelecting(false)}
           onConfirm={(bounds, minZoom, maxZoom) => {
             setSelecting(false);
-            void useOfflineStore.getState().download({
-              id: storage.newId(),
-              label: 'Offline map',
-              basemap,
-              styleJSON: JSON.stringify(buildOsmStyle(tileUrl, false, basemap)),
-              bounds,
-              minZoom,
-              maxZoom,
-            });
+            // "Locally downloaded only" calls NetworkManager.setConnected(false)
+            // process-wide, which would deadlock the download (it can't fetch
+            // tiles). Temporarily restore network for the duration of the download,
+            // then re-apply the runtime flag — without touching the persisted setting.
+            const wasOfflineOnly = offlineOnly;
+            void (async () => {
+              if (wasOfflineOnly) setOfflineOnly(false);
+              try {
+                await useOfflineStore.getState().download({
+                  id: storage.newId(),
+                  label: 'Offline map',
+                  basemap,
+                  styleJSON: JSON.stringify(buildOsmStyle(tileUrl, false, basemap)),
+                  bounds,
+                  minZoom,
+                  maxZoom,
+                });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                showSnack('Download failed: ' + message);
+              } finally {
+                if (wasOfflineOnly) setOfflineOnly(true);
+              }
+            })();
           }}
         />
       )}
@@ -483,7 +498,12 @@ export function MapScreen() {
             icon="tray-arrow-down"
             size="small"
             variant="surface"
-            onPress={() => setSelecting(true)}
+            onPress={() => {
+              // The region box uses a linear screen→geo projection that is only
+              // valid for a north-up, unpitched 2D map, so flatten the camera first.
+              cameraRef.current?.setStop({ bearing: 0, pitch: 0, duration: 300 });
+              setSelecting(true);
+            }}
             style={styles.controlFab}
             accessibilityLabel="Download offline area"
           />

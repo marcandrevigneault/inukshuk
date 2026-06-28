@@ -104,8 +104,9 @@ export function MapScreen() {
   const toggleTerrain3d = useMapStore((s) => s.toggleTerrain3d);
   const basemap = useMapStore((s) => s.basemap);
   const setBasemap = useMapStore((s) => s.setBasemap);
-  // 2D base style; hillshade-3D was replaced by the real 3D terrain surface.
-  const style = useMemo(() => buildOsmStyle(tileUrl, false, basemap), [tileUrl, basemap]);
+  // 2D base style with shaded-relief hillshade for the outdoor/topo look;
+  // hillshade-3D was replaced by the real 3D terrain surface.
+  const style = useMemo(() => buildOsmStyle(tileUrl, false, basemap, true), [tileUrl, basemap]);
   const focusBounds = useMapStore((s) => s.focusBounds);
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
@@ -419,7 +420,8 @@ export function MapScreen() {
                   type="line"
                   layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                   paint={{
-                    'line-color': inspectId === t.id ? mapColors.userLocation : '#3B6FB0',
+                    'line-color':
+                      inspectId === t.id ? mapColors.trackOverlayActive : mapColors.trackOverlay,
                     'line-width': inspectId === t.id ? 6 : 4,
                     'line-opacity': 0.9,
                   }}
@@ -452,10 +454,10 @@ export function MapScreen() {
           {trailFeature && (
             <GeoJSONSource id="trail" data={trailFeature}>
               <Layer
-                id="trail-glow"
+                id="trail-casing"
                 type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{ 'line-color': mapColors.trailGlow, 'line-width': 11 }}
+                paint={{ 'line-color': mapColors.trailCasing, 'line-width': 9 }}
               />
               <Layer
                 id="trail-line"

@@ -26,7 +26,8 @@ interface Props {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-// Half-extent (metres) of terrain built around the anchor — ~4 km of context.
+// Full span (metres) of the terrain box built around the anchor (passed as the
+// min-span to padBbox) — ~4 km of context, i.e. ~2 km in each direction.
 const BOX_M = 4000;
 // Re-anchor (rebuild around the new position) once the user drifts this far from
 // the current box centre, so terrain always extends well ahead of them.
@@ -261,6 +262,11 @@ export function Terrain3DLiveView({
     if (!scene || reanchoringRef.current) return;
     reanchoringRef.current = true;
     setStreaming(true);
+    // Capture the projection in effect now: the fetch is async and the user may
+    // keep panning during it, so afterwards we re-map wherever the camera is
+    // CURRENTLY looking into the new frame — not the stale `target` from when the
+    // threshold was crossed (that would snap the camera back, undoing the pan).
+    const prevUnproject = unprojectRef.current;
     (async () => {
       try {
         const built = await fetchAndBuild(target, basemapRef.current, maxAnisoRef.current);
@@ -275,9 +281,12 @@ export function Terrain3DLiveView({
         unprojectRef.current = built.unproject;
         bboxRef.current = built.bbox;
         anchorRef.current = target;
-        // Keep the camera looking at `target` in the new frame; since the box is
-        // rebuilt around it, that surface point is ~the origin — no visible jump.
-        orbit.current.center.copy(built.project(target.longitude, target.latitude));
+        // Keep the camera on the ground point it's looking at right now, mapped
+        // into the freshly re-normalised frame — so a pan in flight isn't undone.
+        const look = prevUnproject
+          ? prevUnproject(orbit.current.center.x, orbit.current.center.z)
+          : { lng: target.longitude, lat: target.latitude };
+        orbit.current.center.copy(built.project(look.lng, look.lat));
         rebuildOverlays(); // re-drape against the new projection
       } catch {
         /* keep the existing terrain on failure */
@@ -311,7 +320,8 @@ export function Terrain3DLiveView({
           const o = orbit.current;
           const gp = gest.current;
           if (t.length >= 2 && t[0] && t[1]) {
-            // Two fingers: pinch to zoom + twist to rotate (theta) + drag to tilt (phi).
+            // Two fingers: pinch to zoom + horizontal drag to rotate (theta) +
+            // vertical drag to tilt (phi), tracked from the two-finger centroid.
             const dist = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
             const cx = (t[0].pageX + t[1].pageX) / 2;
             const cy = (t[0].pageY + t[1].pageY) / 2;

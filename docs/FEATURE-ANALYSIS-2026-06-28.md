@@ -67,28 +67,28 @@ needs measuring on the target device:
 
 ## 4. Missing features (prioritized) — the real product gaps
 
-The app is excellent at *recording and overlaying* but has near-zero *active
-navigation*. It shows where you are, not where to go. There are no open GitHub
+The app is excellent at _recording and overlaying_ but has near-zero _active
+navigation_. It shows where you are, not where to go. There are no open GitHub
 feature issues; this is the backlog.
 
 **The largest coherent gap: turn the recorder/viewer into a navigator.** Items
 3,4,6,7 below are mostly pure-TS math that fits the tested `src/core` layer —
 unusually low-risk for high value.
 
-| # | Feature | Effort | Why |
-|---|---------|--------|-----|
-| 1 | **Background recording (foreground service)** | L | Foreground-only today; a real hike with the phone pocketed drops the track. Biggest reliability gap. Needs expo-task-manager + Play background-location review. |
-| 2 | **Persist in-progress recording + crash recovery** | M | recorderStore is unpersisted — an app kill mid-hike loses the whole track. Cheap insurance; ship with/before #1. |
-| 3 | **Follow an imported/loaded route** (route-as-target, progress %, dist-to-end) | M | The core "someone gave me a GPX, guide me" workflow. Uses existing track math. |
-| 4 | **Off-route alert** | M | Point-to-polyline distance + threshold + haptic. High safety value, small math. |
-| 5 | **Units (metric/imperial) setting** | M | Everything is hard-coded metric (`src/lib/format.ts`); blocks US/UK users. |
-| 6 | **Distance/bearing/ETA to next waypoint or destination** | S–M | Turns the existing compass + waypoints into real wayfinding. |
-| 7 | **Drop-a-pin / go-to-coordinate destination** | S | Lightweight standalone marker; foundation for #6. Fits the new "+" speed-dial. |
-| 8 | **GPS smoothing + accuracy gating + auto-pause** | M | Points are appended raw; noisy fixes inflate distance/D+. Improves every stat the app advertises. |
-| 9 | **First-run onboarding** | S–M | The georeferenced-PDF value prop is non-obvious; a 3-card intro + sample map lifts activation. |
-| 10 | **Aggregate/lifetime stats + per-km splits** | S–M | High perceived value, pure additive math on stored data. |
-| 11 | **Accessibility pass** (labels/roles on icon controls) | M | Little a11y today; broadens reach. |
-| 12 | **Finish 3D: offline DEM caching + M5 PDF drape** | L | Polishes a flagship differentiator; lower priority than core navigation. |
+| #   | Feature                                                                        | Effort | Why                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Background recording (foreground service)**                                  | L      | Foreground-only today; a real hike with the phone pocketed drops the track. Biggest reliability gap. Needs expo-task-manager + Play background-location review. |
+| 2   | **Persist in-progress recording + crash recovery**                             | M      | recorderStore is unpersisted — an app kill mid-hike loses the whole track. Cheap insurance; ship with/before #1.                                                |
+| 3   | **Follow an imported/loaded route** (route-as-target, progress %, dist-to-end) | M      | The core "someone gave me a GPX, guide me" workflow. Uses existing track math.                                                                                  |
+| 4   | **Off-route alert**                                                            | M      | Point-to-polyline distance + threshold + haptic. High safety value, small math.                                                                                 |
+| 5   | **Units (metric/imperial) setting**                                            | M      | Everything is hard-coded metric (`src/lib/format.ts`); blocks US/UK users.                                                                                      |
+| 6   | **Distance/bearing/ETA to next waypoint or destination**                       | S–M    | Turns the existing compass + waypoints into real wayfinding.                                                                                                    |
+| 7   | **Drop-a-pin / go-to-coordinate destination**                                  | S      | Lightweight standalone marker; foundation for #6. Fits the new "+" speed-dial.                                                                                  |
+| 8   | **GPS smoothing + accuracy gating + auto-pause**                               | M      | Points are appended raw; noisy fixes inflate distance/D+. Improves every stat the app advertises.                                                               |
+| 9   | **First-run onboarding**                                                       | S–M    | The georeferenced-PDF value prop is non-obvious; a 3-card intro + sample map lifts activation.                                                                  |
+| 10  | **Aggregate/lifetime stats + per-km splits**                                   | S–M    | High perceived value, pure additive math on stored data.                                                                                                        |
+| 11  | **Accessibility pass** (labels/roles on icon controls)                         | M      | Little a11y today; broadens reach.                                                                                                                              |
+| 12  | **Finish 3D: offline DEM caching + M5 PDF drape**                              | L      | Polishes a flagship differentiator; lower priority than core navigation.                                                                                        |
 
 **Deliberately deferred (separate network/paid tier):** cloud backup/sync,
 accounts, weather, share-live-location, multi-day trips.
@@ -107,7 +107,7 @@ accounts, weather, share-live-location, multi-day trips.
 
 ## 6. Open dependency/CI items (from the prior session)
 
-- **#9 pdfjs-dist 3→6** is now a *security* fix (it clears the one real high-sev
+- **#9 pdfjs-dist 3→6** is now a _security_ fix (it clears the one real high-sev
   vuln the nightly audit flags: arbitrary JS on opening a malicious PDF). Needs an
   on-device multi-page GeoPDF rasterizer test before merge.
 - **#5 eslint 10 / jest 30** majors — need a local `npm run check` pass.

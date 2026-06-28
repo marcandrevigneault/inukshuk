@@ -28,7 +28,7 @@ jobs:
     name: Android (Gradle assembleDebug)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The RN + reanimated/worklets NDK build exhausts the runner's small disk
       # ("No space left on device"). Reclaim the large preinstalled toolchains we
@@ -71,7 +71,7 @@ jobs:
     name: iOS (xcodebuild simulator)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A Swift Package dependency requires Swift tools 6.2; the image's default
       # Xcode 16.4 ships Swift 6.1, so package resolution fails ("Could not

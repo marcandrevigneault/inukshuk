@@ -46,10 +46,27 @@ jobs:
 
       - name: Run Maestro flow on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # The Maestro Android driver installs an instrumentation APK and connects
+          # over a dadb port; on a cold CI emulator that handshake routinely exceeds
+          # Maestro's default startup window and throws AndroidDriverTimeoutException
+          # before any flow runs. Give it room.
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: 240000
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Headless, software GPU, no snapshots/boot-anim — the stable combo for
+          # ubuntu-latest CI emulators (avoids GPU/snapshot races at boot).
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
+            # Wait until the system is fully booted before letting Maestro attach,
+            # otherwise the driver races package-manager readiness.
+            adb wait-for-device
+            adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done'
+            # Kill animations so Maestro's element waits don't flake on transitions.
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             maestro test .maestro/smoke.yaml

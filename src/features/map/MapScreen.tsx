@@ -110,6 +110,9 @@ export function MapScreen() {
   const setFocusBounds = useMapStore((s) => s.setFocusBounds);
   const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  // The bottom-right "+" speed-dial (start recording today; room for more map
+  // actions later — plan a route, drop a destination pin, import…).
+  const [actionsOpen, setActionsOpen] = useState(false);
   const downloadProgress = useOfflineStore((s) => s.progress);
 
   // Consume a one-shot "fit these bounds" request (e.g. "view trail" from the
@@ -328,6 +331,14 @@ export function MapScreen() {
   // current center and zoom.
   const resetNorth = () => {
     cameraRef.current?.setStop({ bearing: 0, duration: 300 });
+  };
+
+  // Recording and 3D don't mix (3D can crash mid-record), so drop out of 3D when
+  // a recording starts — the 3D button is disabled for the duration anyway.
+  const startRecording = () => {
+    setActionsOpen(false);
+    if (terrain3d) toggleTerrain3d();
+    start();
   };
 
   const handleStop = async () => {
@@ -643,13 +654,6 @@ export function MapScreen() {
             <View style={styles.controlsRow} pointerEvents="box-none">
               <RecordControls
                 status={status}
-                // Recording and 3D don't mix (3D can crash mid-record), so drop out
-                // of 3D when a recording starts — the 3D button is already disabled
-                // for the duration.
-                onStart={() => {
-                  if (terrain3d) toggleTerrain3d();
-                  start();
-                }}
                 onPause={pause}
                 onResume={resume}
                 onStop={handleStop}
@@ -684,6 +688,29 @@ export function MapScreen() {
             onScrub={setMarkerAt}
           />
         </Surface>
+      )}
+
+      {/* "+" speed-dial: the recording entry point (and home for future map
+          actions). Hidden while a recording is under way (the active controls
+          take over) and while selecting an offline region. */}
+      {status === 'idle' && !selecting && (
+        <FAB.Group
+          open={actionsOpen}
+          visible
+          icon={actionsOpen ? 'close' : 'plus'}
+          color={theme.colors.onTertiary}
+          fabStyle={{ backgroundColor: theme.colors.tertiary }}
+          backdropColor="#00000066"
+          actions={[
+            {
+              icon: 'record-circle',
+              label: 'Record track',
+              onPress: startRecording,
+            },
+          ]}
+          onStateChange={({ open }) => setActionsOpen(open)}
+          accessibilityLabel="Map actions"
+        />
       )}
 
       <Portal>

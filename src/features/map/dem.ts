@@ -1,6 +1,7 @@
 import {
   pickTerrainZoom,
   rangeBbox,
+  sampleGridBilinear,
   terrariumToMeters,
   tileRangeForBbox,
   type TileRange,
@@ -97,11 +98,12 @@ export async function fetchHeightmap(bounds: BoundingBox, grid = 256): Promise<H
   const data = new Float32Array(grid * grid);
   let minH = Infinity;
   let maxH = -Infinity;
+  // Bilinearly resample the full-resolution DEM down to the mesh grid. Nearest
+  // sampling here (Math.round) aliased and terraced the relief, throwing away real
+  // shape the tiles carried; bilinear recovers smooth slopes for the same cost.
   for (let gy = 0; gy < grid; gy++) {
     for (let gx = 0; gx < grid; gx++) {
-      const sx = Math.min(fullW - 1, Math.round((gx / (grid - 1)) * (fullW - 1)));
-      const sy = Math.min(fullH - 1, Math.round((gy / (grid - 1)) * (fullH - 1)));
-      const h = full[sy * fullW + sx]!;
+      const h = sampleGridBilinear(full, fullW, fullH, gx / (grid - 1), gy / (grid - 1));
       data[gy * grid + gx] = h;
       if (h < minH) minH = h;
       if (h > maxH) maxH = h;

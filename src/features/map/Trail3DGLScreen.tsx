@@ -60,6 +60,7 @@ async function buildGroupFor(
   hm: Heightmap,
   pts: readonly TrackPoint[],
   bm: BasemapChoice,
+  maxAnisotropy = 1,
 ): Promise<TerrainBuild> {
   let texture;
   if (bm !== 'relief') {
@@ -69,7 +70,7 @@ async function buildGroupFor(
       texture = undefined; // fall back to hypsometric relief
     }
   }
-  return buildTerrain(hm, pts, texture);
+  return buildTerrain(hm, pts, texture, maxAnisotropy);
 }
 
 function disposeGroup(g: THREE.Group): void {
@@ -131,6 +132,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
   });
   const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
+  const maxAnisoRef = useRef(1);
   const scrubRef = useRef<TrackPointAt | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const groupRef = useRef<THREE.Group | null>(null);
@@ -259,21 +261,29 @@ export function Trail3DGLScreen({ trackId }: Props) {
       const hm = await fetchHeightmap(padBbox(bbox));
       hmRef.current = hm;
       ptsRef.current = pts;
+
+      // Renderer first, so the drape texture can use the GL context's max
+      // anisotropy and stay sharp at grazing angles.
+      const renderer = new Renderer({ gl });
+      renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+      renderer.setClearColor(0xcfe0ec, 1);
+      maxAnisoRef.current = renderer.capabilities.getMaxAnisotropy();
+
       const { group, center, trailRadius, project } = await buildGroupFor(
         hm,
         pts,
         basemapRef.current,
+        maxAnisoRef.current,
       );
       projectRef.current = project;
 
-      const renderer = new Renderer({ gl });
-      renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
-      renderer.setClearColor(0xcfe0ec, 1);
       const scene = new THREE.Scene();
       sceneRef.current = scene;
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 0.9));
-      const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-      sun.position.set(1.5, 2.5, 1);
+      // Warm key light from a low azimuth for stronger relief, plus a soft sky/
+      // ground hemisphere fill (matches the live 3D map).
+      scene.add(new THREE.HemisphereLight(0xfff4e6, 0x55603f, 0.85));
+      const sun = new THREE.DirectionalLight(0xfff2e0, 1.35);
+      sun.position.set(2.2, 1.8, 1.0);
       scene.add(sun);
       scene.add(group);
       groupRef.current = group;
@@ -351,7 +361,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
     basemapRef.current = bm;
     setSwitching(true);
     try {
-      const built = await buildGroupFor(hm, ptsRef.current, bm);
+      const built = await buildGroupFor(hm, ptsRef.current, bm, maxAnisoRef.current);
       if (groupRef.current) {
         scene.remove(groupRef.current);
         disposeGroup(groupRef.current);

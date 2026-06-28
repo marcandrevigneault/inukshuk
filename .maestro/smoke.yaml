@@ -6,10 +6,12 @@ appId: com.inukshuk.app
 - launchApp:
     permissions:
       location: allow
-- assertVisible: 'Record'
+# The map screen's record entry point is now a "+" speed-dial (not a "Record"
+# button), so assert the Map tab itself is mounted instead.
+- assertVisible: 'Map'
 - tapOn: 'Library'
 - assertVisible: 'Import map'
 - tapOn: 'Settings'
 - assertVisible: 'Keep screen awake'
 - tapOn: 'Map'
-- assertVisible: 'Record'
+- assertVisible: 'Map'

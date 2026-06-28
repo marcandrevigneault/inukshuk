@@ -48,6 +48,8 @@ yarn-error.*
 /ios
 /android
 builds/
+# local EAS build logs (build-vc<N>.log)
+build-vc*.log
 
 # local secret material — never commit
 .expo-token.local

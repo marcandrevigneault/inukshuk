@@ -195,7 +195,7 @@ export function Terrain3DLiveView({
     basemapRef.current = basemap;
   }, [basemap]);
 
-  const orbit = useRef({ theta: 0.6, phi: 1.28, radius: 4, center: new THREE.Vector3() });
+  const orbit = useRef({ theta: 0.6, phi: 1.05, radius: 4, center: new THREE.Vector3() });
   const gest = useRef({ x: 0, y: 0, cy: 0, dist: 0, ang: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
   const unprojectRef = useRef<((x: number, z: number) => { lng: number; lat: number }) | null>(
@@ -334,7 +334,7 @@ export function Terrain3DLiveView({
               if (dAng > Math.PI) dAng -= 2 * Math.PI;
               else if (dAng < -Math.PI) dAng += 2 * Math.PI;
               o.theta -= dAng;
-              o.phi = clamp(o.phi - (cy - gp.cy) * 0.005, 0.12, 1.45);
+              o.phi = clamp(o.phi - (cy - gp.cy) * 0.005, 0.12, 1.25);
             }
             gp.dist = dist;
             gp.ang = ang;
@@ -431,11 +431,13 @@ export function Terrain3DLiveView({
         0.01,
         100,
       );
-      // Closer + low oblique angle so terrain fills the frame down to a fogged
-      // horizon (a near-horizontal pitch — like the OutMap/Gaia 3D look).
+      // Immersed, low oblique camera so terrain fills the frame foreground-to-
+      // horizon (OutMap/Gaia look). `radius` here is the slab's full-span metric
+      // (~2.3); the terrain only extends ~1 unit from centre, so we must sit well
+      // inside that — a small radius — or the mesh reads as a distant floating slab.
       orbit.current.center = gc;
-      orbit.current.radius = clamp(radius * 1.05, 0.8, 9);
-      orbit.current.phi = 1.32;
+      orbit.current.radius = clamp(radius * 0.6, 0.7, 9);
+      orbit.current.phi = 1.05;
       setStatus('ready');
 
       const target = new THREE.Vector3();
@@ -556,7 +558,8 @@ export function Terrain3DLiveView({
             return;
           }
           orbit.current.theta = 0.6;
-          orbit.current.phi = 1.32;
+          orbit.current.phi = 1.05;
+          orbit.current.radius = clamp(orbit.current.radius, 0.6, 1.6);
           followRef.current = true;
           setFollow(true);
         }}

@@ -397,7 +397,11 @@ export function MapScreen() {
               if (e.nativeEvent.trackUserLocation === null) setFollowUser(false);
             }}
             minZoom={1}
-            maxZoom={20}
+            // Cap at 18: the raster basemaps (OSM z19, Esri) have real tiles to
+            // here globally. Past this, sparse high-zoom tiles run out and MapLibre
+            // shows "Map data not yet available" / blank — so don't let the user
+            // zoom into that dead zone.
+            maxZoom={18}
           />
 
           {showPdfOverlay &&
@@ -535,17 +539,10 @@ export function MapScreen() {
             style={styles.controlFab}
           />
         )}
-        <FAB
-          icon="video-3d"
-          size="small"
-          variant={terrain3d ? 'primary' : 'surface'}
-          onPress={toggleTerrain3d}
-          // 3D is unstable while recording (it can crash) and is meaningless while
-          // selecting/downloading an offline region — disable it in those states.
-          disabled={status !== 'idle' || selecting || downloadProgress !== null}
-          style={styles.controlFab}
-          accessibilityLabel="3D relief"
-        />
+        {/* 3D relief temporarily pulled back — the live-3D experience isn't where
+            we want it yet. The Terrain3DLiveView code stays in the tree (gated off
+            via the `terrain3d` store flag, which nothing toggles now) so it's ready
+            to re-enable once the camera/gesture feel is dialed in. */}
         {!terrain3d && (
           <FAB
             icon="tray-arrow-down"

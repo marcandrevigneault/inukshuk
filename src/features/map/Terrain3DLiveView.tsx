@@ -195,8 +195,8 @@ export function Terrain3DLiveView({
     basemapRef.current = basemap;
   }, [basemap]);
 
-  const orbit = useRef({ theta: 0.6, phi: 1.12, radius: 4, center: new THREE.Vector3() });
-  const gest = useRef({ x: 0, y: 0, cx: 0, cy: 0, dist: 0, single: true });
+  const orbit = useRef({ theta: 0.6, phi: 1.28, radius: 4, center: new THREE.Vector3() });
+  const gest = useRef({ x: 0, y: 0, cy: 0, dist: 0, ang: 0, single: true });
   const projectRef = useRef<((lng: number, lat: number) => THREE.Vector3) | null>(null);
   const unprojectRef = useRef<((x: number, z: number) => { lng: number; lat: number }) | null>(
     null,
@@ -313,25 +313,31 @@ export function Terrain3DLiveView({
         onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderGrant: (_e, g) => {
-          gest.current = { x: g.x0, y: g.y0, cx: 0, cy: 0, dist: 0, single: true };
+          gest.current = { x: g.x0, y: g.y0, cy: 0, dist: 0, ang: 0, single: true };
         },
         onPanResponderMove: (e, g) => {
           const t = e.nativeEvent.touches;
           const o = orbit.current;
           const gp = gest.current;
           if (t.length >= 2 && t[0] && t[1]) {
-            // Two fingers: pinch to zoom + horizontal drag to rotate (theta) +
-            // vertical drag to tilt (phi), tracked from the two-finger centroid.
-            const dist = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
-            const cx = (t[0].pageX + t[1].pageX) / 2;
+            // Two fingers, the map-app standard: pinch to zoom, *twist* to rotate
+            // the bearing, drag up/down to tilt. (Twist = the angle between the two
+            // fingers — far more intuitive than the old horizontal-centroid rotate.)
+            const fx = t[1].pageX - t[0].pageX;
+            const fy = t[1].pageY - t[0].pageY;
+            const dist = Math.hypot(fx, fy);
+            const ang = Math.atan2(fy, fx);
             const cy = (t[0].pageY + t[1].pageY) / 2;
             if (gp.dist > 0) {
               o.radius = clamp(o.radius * (gp.dist / dist), 0.8, 9);
-              o.theta -= (cx - gp.cx) * 0.006;
-              o.phi = clamp(o.phi - (cy - gp.cy) * 0.006, 0.12, 1.45);
+              let dAng = ang - gp.ang;
+              if (dAng > Math.PI) dAng -= 2 * Math.PI;
+              else if (dAng < -Math.PI) dAng += 2 * Math.PI;
+              o.theta -= dAng;
+              o.phi = clamp(o.phi - (cy - gp.cy) * 0.005, 0.12, 1.45);
             }
             gp.dist = dist;
-            gp.cx = cx;
+            gp.ang = ang;
             gp.cy = cy;
             gp.single = false;
           } else {
@@ -425,9 +431,11 @@ export function Terrain3DLiveView({
         0.01,
         100,
       );
-      // Closer + lower angle so terrain fills the frame down to a fogged horizon.
+      // Closer + low oblique angle so terrain fills the frame down to a fogged
+      // horizon (a near-horizontal pitch — like the OutMap/Gaia 3D look).
       orbit.current.center = gc;
-      orbit.current.radius = clamp(radius * 1.25, 0.8, 9);
+      orbit.current.radius = clamp(radius * 1.05, 0.8, 9);
+      orbit.current.phi = 1.32;
       setStatus('ready');
 
       const target = new THREE.Vector3();
@@ -540,13 +548,20 @@ export function Terrain3DLiveView({
         iconColor={follow ? theme.colors.onPrimary : theme.colors.onSurface}
         containerColor={follow ? theme.colors.primary : theme.colors.surface}
         onPress={() => {
-          // Retry a failed load; otherwise toggle follow (camera tracks you and
-          // the terrain re-anchors as you move).
-          if (status === 'error') setRecenter((n) => n + 1);
-          else setFollow((f) => !f);
+          // Retry a failed load; otherwise recenter on the user with a clean
+          // default orientation and resume follow — always a visible action (pan
+          // with one finger to break out of follow and explore freely again).
+          if (status === 'error') {
+            setRecenter((n) => n + 1);
+            return;
+          }
+          orbit.current.theta = 0.6;
+          orbit.current.phi = 1.32;
+          followRef.current = true;
+          setFollow(true);
         }}
         style={styles.recenter}
-        accessibilityLabel={follow ? 'Stop following my location' : 'Follow my location in 3D'}
+        accessibilityLabel="Recenter on my location"
       />
     </View>
   );

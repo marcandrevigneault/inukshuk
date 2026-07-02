@@ -209,6 +209,17 @@ export function Terrain3DLiveView({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const reanchoringRef = useRef(false);
+  // GL "generation": bumped on every new context and on unmount. The render
+  // loop re-queues itself only while its generation is current — the GLView
+  // remounts on every basemap change / recenter (see its `key`), and without
+  // this each remount stacked another permanent 60fps loop and retained scene.
+  const glGenRef = useRef(0);
+  useEffect(
+    () => () => {
+      glGenRef.current++;
+    },
+    [],
+  );
   const overlaysRef = useRef<THREE.Group | null>(null);
   const trailsRef = useRef(trails);
   const recordPointsRef = useRef(recordPoints);
@@ -367,6 +378,7 @@ export function Terrain3DLiveView({
   );
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
+    const gen = ++glGenRef.current;
     const anchor = locRef.current;
     if (!anchor) {
       setStatus('error');
@@ -390,6 +402,10 @@ export function Terrain3DLiveView({
         unproject,
         bbox,
       } = await fetchAndBuild(anchor, basemapRef.current, maxAnisoRef.current);
+      if (gen !== glGenRef.current) {
+        disposeGroup(group);
+        return; // superseded while loading (remount/unmount)
+      }
       projectRef.current = project;
       unprojectRef.current = unproject;
       bboxRef.current = bbox;
@@ -442,6 +458,18 @@ export function Terrain3DLiveView({
 
       const target = new THREE.Vector3();
       const render = () => {
+        if (gen !== glGenRef.current) {
+          // Superseded (unmount or GLView remount): stop the loop and free the
+          // scene's GPU resources exactly once.
+          disposeGroup(scene as unknown as THREE.Group);
+          renderer.dispose();
+          if (sceneRef.current === scene) {
+            sceneRef.current = null;
+            groupRef.current = null;
+            overlaysRef.current = null;
+          }
+          return;
+        }
         requestAnimationFrame(render);
         const o = orbit.current;
         // Project the live position onto the (possibly re-anchored) surface.
@@ -487,6 +515,7 @@ export function Terrain3DLiveView({
       };
       render();
     } catch {
+      if (gen !== glGenRef.current) return; // superseded — don't set state after unmount
       setStatus('error');
     }
   };

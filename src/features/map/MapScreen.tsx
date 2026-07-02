@@ -84,6 +84,7 @@ export function MapScreen() {
   const tileUrl = useSettingsStore((s) => s.tileUrl);
   const keepAwake = useSettingsStore((s) => s.keepAwakeWhileRecording);
   const offlineOnly = useSettingsStore((s) => s.offlineOnly);
+  const settingsHydrated = useSettingsStore((s) => s.hydrated);
   const set = useSettingsStore((s) => s.set);
 
   const { permission, location } = useLocationTracking();
@@ -167,6 +168,7 @@ export function MapScreen() {
   const stats = useRecorderStore((s) => s.stats);
   const points = useRecorderStore((s) => s.points);
   const startedAt = useRecorderStore((s) => s.startedAt);
+  const pausedMs = useRecorderStore((s) => s.pausedMs);
   const start = useRecorderStore((s) => s.start);
   const pause = useRecorderStore((s) => s.pause);
   const resume = useRecorderStore((s) => s.resume);
@@ -178,6 +180,19 @@ export function MapScreen() {
 
   const [elapsedS, setElapsedS] = useState(0);
   const { message: snack, show: showSnack, dismiss: dismissSnack } = useTimedSnackbar(3000);
+
+  // Overlay errors surface through the timed hook too: a raw <Snackbar
+  // duration={4000}> never auto-dismisses on Samsung One UI (paper arms its
+  // timer in an animation callback that may not fire), and its onDismiss was a
+  // no-op — the error banner stuck on screen forever.
+  const {
+    message: overlaySnack,
+    show: showOverlaySnack,
+    dismiss: dismissOverlaySnack,
+  } = useTimedSnackbar(4000);
+  useEffect(() => {
+    if (overlayError) showOverlaySnack(`Map overlay: ${overlayError}`);
+  }, [overlayError, showOverlaySnack]);
 
   // Tapping a live waypoint marker opens an editor for its note + photo.
   const [editWpId, setEditWpId] = useState<string | null>(null);
@@ -207,14 +222,16 @@ export function MapScreen() {
     updateWaypoint(editWpId, { photoUri: stored });
   };
 
-  // Live wall-clock timer, independent of GPS fix cadence.
+  // Live elapsed timer, independent of GPS fix cadence. Excludes paused wall
+  // time (pausedMs) so resuming continues from where the display froze instead
+  // of jumping forward by the whole pause.
   useEffect(() => {
     if (status !== 'recording' || startedAt === null) return;
-    const tick = () => setElapsedS(Math.floor((Date.now() - startedAt) / 1000));
+    const tick = () => setElapsedS(Math.floor((Date.now() - startedAt - pausedMs) / 1000));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [status, startedAt]);
+  }, [status, startedAt, pausedMs]);
 
   // Keep the screen on while actively recording (if enabled).
   useEffect(() => {
@@ -247,26 +264,35 @@ export function MapScreen() {
   const WAYPOINT_BADGE_OFFSET = 45;
   const WAYPOINT_HIT_PX = 60;
   const onMapPress = useCallback(
-    (e: { nativeEvent?: { point?: [number, number] } }) => {
+    async (e: { nativeEvent?: { point?: [number, number] } }) => {
       const point = e.nativeEvent?.point;
-      const b = boundsRef.current;
-      if (!point || !b || mapSize.w === 0 || mapSize.h === 0 || waypoints.length === 0) return;
+      const map = mapRef.current;
+      if (!point || !map || waypoints.length === 0) return;
       const [px, py] = point;
-      const [w, s, east, n] = b;
       let best: (typeof waypoints)[number] | null = null;
       let bestD = WAYPOINT_HIT_PX;
-      for (const wp of waypoints) {
-        const wx = ((wp.longitude - w) / (east - w)) * mapSize.w;
-        const wy = ((n - wp.latitude) / (n - s)) * mapSize.h - WAYPOINT_BADGE_OFFSET;
-        const d = Math.hypot(px - wx, py - wy);
-        if (d < bestD) {
-          bestD = d;
-          best = wp;
+      try {
+        // Project each pin through the real camera — a linear mapping over the
+        // visible bounds is wrong the moment the map is rotated or pitched
+        // (taps would miss, or open a different waypoint's note).
+        const pts = await Promise.all(
+          waypoints.map((wp) => map.project([wp.longitude, wp.latitude])),
+        );
+        for (let i = 0; i < waypoints.length; i++) {
+          const p = pts[i];
+          if (!p) continue;
+          const d = Math.hypot(px - p[0], py - (p[1] - WAYPOINT_BADGE_OFFSET));
+          if (d < bestD) {
+            bestD = d;
+            best = waypoints[i] ?? null;
+          }
         }
+      } catch {
+        return; // projection unavailable mid-teardown — ignore the tap
       }
       if (best) openWaypoint(best.id, best.note ?? '');
     },
-    [waypoints, mapSize],
+    [waypoints],
   );
 
   // Screen point (px) → [lng, lat], synchronously, from the cached bounds.
@@ -282,15 +308,17 @@ export function MapScreen() {
     [mapSize],
   );
 
-  // Apply persisted offlineOnly flag and hydrate offline tile regions on mount.
-  useEffect(
-    () => {
-      setOfflineOnly(offlineOnly);
-      void useOfflineStore.getState().hydrate();
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  // Apply the persisted offlineOnly flag once settings hydrate. Child effects
+  // run before RootLayout's, so a mount-only effect always saw the default
+  // (false) and a persisted "Locally downloaded only" was silently ignored
+  // until manually re-toggled. Re-runs on later changes to stay in sync.
+  useEffect(() => {
+    if (settingsHydrated) setOfflineOnly(offlineOnly);
+  }, [settingsHydrated, offlineOnly]);
+  // Hydrate offline tile regions on mount.
+  useEffect(() => {
+    void useOfflineStore.getState().hydrate();
+  }, []);
 
   const trailFeature = useMemo(() => toLineFeature(points), [points]);
 
@@ -770,11 +798,13 @@ export function MapScreen() {
       >
         {snack ?? ''}
       </Snackbar>
-      {overlayError && (
-        <Snackbar visible onDismiss={() => undefined} duration={4000}>
-          {`Map overlay: ${overlayError}`}
-        </Snackbar>
-      )}
+      <Snackbar
+        visible={overlaySnack !== null}
+        onDismiss={dismissOverlaySnack}
+        duration={Number.POSITIVE_INFINITY}
+      >
+        {overlaySnack ?? ''}
+      </Snackbar>
       {downloadProgress !== null && (
         <Snackbar visible onDismiss={() => undefined} duration={Number.POSITIVE_INFINITY}>
           {`Downloading ${downloadProgress.label}… ${downloadProgress.pct}%`}

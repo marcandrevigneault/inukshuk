@@ -1,4 +1,5 @@
 import {
+  clampTileRange,
   pickTerrainZoom,
   rangeBbox,
   sampleGridBilinear,
@@ -64,7 +65,11 @@ export async function fetchHeightmap(bounds: BoundingBox, grid = 256): Promise<H
   // Allow more DEM tiles per side → a higher zoom level → finer elevation detail
   // (and a sharper basemap drape, which reuses the same tile range/zoom).
   const z = pickTerrainZoom(bounds, 6);
-  const range = tileRangeForBbox(bounds, z);
+  // pickTerrainZoom bottoms out at its zMin for very large boxes (a long
+  // imported tour), where the range can still span dozens of tiles per side —
+  // hundreds of downloads and an OOM-sized heightmap. Enforce the same budget
+  // on the range we actually fetch, cropped around the box centre.
+  const range = clampTileRange(tileRangeForBbox(bounds, z), 6);
   const fullW = (range.maxX - range.minX + 1) * TILE;
   const fullH = (range.maxY - range.minY + 1) * TILE;
   const full = new Float32Array(fullW * fullH);

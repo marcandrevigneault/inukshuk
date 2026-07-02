@@ -139,6 +139,17 @@ export function Trail3DGLScreen({ trackId }: Props) {
   const hmRef = useRef<Awaited<ReturnType<typeof fetchHeightmap>> | null>(null);
   const ptsRef = useRef<readonly TrackPoint[]>([]);
   const basemapRef = useRef<'map' | 'satellite' | 'relief'>('map');
+  // GL "generation": bumped on every new context and on unmount. The render
+  // loop re-queues itself only while its generation is current — without this,
+  // every 2D↔3D toggle (which remounts the GLView) stacked another permanent
+  // 60fps loop rendering a retained multi-MB scene against a dead GL context.
+  const glGenRef = useRef(0);
+  useEffect(
+    () => () => {
+      glGenRef.current++;
+    },
+    [],
+  );
 
   const pan = useMemo(
     () =>
@@ -248,9 +259,11 @@ export function Trail3DGLScreen({ trackId }: Props) {
   );
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
+    const gen = ++glGenRef.current;
     try {
       const gpx = fileUri ? await storage.readFileText(fileUri) : '';
       const pts = gpx ? parseGpx(gpx).points : [];
+      if (gen !== glGenRef.current) return; // superseded while loading
       setPoints(pts);
       if (!bbox) {
         setStatus('error');
@@ -259,6 +272,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
       // Pad the trail's box so the terrain extends past the trace and fills the
       // viewport, instead of rendering as a tight floating slab.
       const hm = await fetchHeightmap(padBbox(bbox));
+      if (gen !== glGenRef.current) return;
       hmRef.current = hm;
       ptsRef.current = pts;
 
@@ -275,6 +289,10 @@ export function Trail3DGLScreen({ trackId }: Props) {
         basemapRef.current,
         maxAnisoRef.current,
       );
+      if (gen !== glGenRef.current) {
+        disposeGroup(group);
+        return;
+      }
       projectRef.current = project;
 
       const scene = new THREE.Scene();
@@ -319,6 +337,17 @@ export function Trail3DGLScreen({ trackId }: Props) {
       setStatus('ready');
 
       const render = () => {
+        if (gen !== glGenRef.current) {
+          // Superseded (unmount or GLView remount): stop the loop and free the
+          // scene's GPU resources exactly once.
+          disposeGroup(scene as unknown as THREE.Group);
+          renderer.dispose();
+          if (sceneRef.current === scene) {
+            sceneRef.current = null;
+            groupRef.current = null;
+          }
+          return;
+        }
         requestAnimationFrame(render);
         const { theta, phi, radius: r, center: c } = orbit.current;
         camera.position.set(
@@ -339,6 +368,7 @@ export function Trail3DGLScreen({ trackId }: Props) {
       };
       render();
     } catch (e) {
+      if (gen !== glGenRef.current) return; // superseded — don't set state after unmount
       setErrMsg(e instanceof Error ? e.message : String(e));
       setStatus('error');
     }

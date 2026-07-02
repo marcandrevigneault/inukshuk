@@ -11,6 +11,6 @@
     // path. Exit plan: the pdfjs-dist 6.x upgrade (PR #72), which needs
     // on-device validation of the PDF overlay pipeline (see the pipeline's
     // device-only-bug history) before it can land.
-    "GHSA-wgrm-67xf-hhpq"
-  ]
+    "GHSA-wgrm-67xf-hhpq",
+  ],
 }
